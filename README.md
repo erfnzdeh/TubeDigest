@@ -1,15 +1,16 @@
 # YouTube Summary-to-Telegram Bot
 
-This bot automatically monitors specified YouTube channels, generates summaries of new videos using GPT-4, and posts them to a Telegram channel.
+This bot automatically monitors specified YouTube channels, generates summaries of new videos using GPT-3.5-turbo, and posts them to users via Telegram.
 
 ## Features
 
-- Monitors multiple YouTube channels for new uploads
+- User-specific YouTube channel monitoring
 - Automatically fetches video transcripts
-- Generates concise summaries using GPT-4
-- Posts summaries to a Telegram channel
+- Generates concise summaries using GPT-3.5-turbo
+- Sends summaries directly to users via Telegram
 - Runs continuously with hourly checks
 - Handles rate limits and errors gracefully
+- MySQL database for persistent storage
 
 ## Prerequisites
 
@@ -17,7 +18,7 @@ This bot automatically monitors specified YouTube channels, generates summaries 
 - YouTube Data API key
 - Telegram Bot Token
 - OpenAI API key
-- Telegram Channel ID
+- Docker and Docker Compose (for MySQL)
 
 ## Setup
 
@@ -41,24 +42,47 @@ cp .env.example .env
 - Get a YouTube API key from [Google Cloud Console](https://console.cloud.google.com/)
 - Create a Telegram bot using [@BotFather](https://t.me/botfather)
 - Get your OpenAI API key from [OpenAI Platform](https://platform.openai.com/)
-- Add your Telegram channel ID
-- Add YouTube channel IDs to monitor (comma-separated)
+- Set MySQL credentials (or use defaults)
+
+5. Start the MySQL container:
+```bash
+docker-compose up -d
+```
 
 ## Usage
 
 Run the bot:
 ```bash
-python youtube_summary_bot.py
+python src/bot.py
 ```
 
 The bot will:
-1. Check for new videos every hour
-2. Generate summaries for new videos
-3. Post summaries to your Telegram channel
+1. Connect to the MySQL database
+2. Start listening for Telegram commands
+3. Check for new videos every hour
+4. Generate summaries for new videos
+5. Send summaries to users
+
+## Bot Commands
+
+- `/start` - Start the bot and get welcome message
+- `/add_channel <channel_id>` - Add a YouTube channel to monitor
+- `/list_channels` - List your monitored channels
+- `/remove_channel <channel_id>` - Remove a channel from monitoring
+- `/help` - Show help message
+
+## Database
+
+The bot uses MySQL for data storage. The database is run in a Docker container with the following default settings:
+- Database name: tubedigest
+- Username: tubedigest
+- Password: (set in .env file)
+- Host: localhost
+- Port: 3306
 
 ## Configuration
 
-- Modify the check interval in `youtube_summary_bot.py` (default: 1 hour)
+- Modify the check interval in `src/bot.py` (default: 1 hour)
 - Adjust the summary length in the `generate_summary` function
 - Change the number of recent videos to check in `get_channel_uploads`
 
@@ -69,6 +93,7 @@ The bot includes comprehensive error handling for:
 - Missing transcripts
 - Network issues
 - Invalid API keys
+- Database connection issues
 
 ## Contributing
 
