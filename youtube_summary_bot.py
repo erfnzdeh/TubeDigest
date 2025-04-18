@@ -1,7 +1,8 @@
 import os
 import time
 import logging
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime, timedelta, UTC
 from typing import List, Dict
 
 import schedule
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
 from telegram import Bot
-import openai
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -24,7 +25,7 @@ load_dotenv()
 # Initialize API clients
 youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
 telegram_bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
-openai.api_key = os.getenv('OPENAI_API_KEY')
+openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 # Global variable to store processed video IDs
 processed_videos = set()
@@ -64,8 +65,8 @@ def get_video_transcript(video_id: str) -> str:
 def generate_summary(transcript: str) -> str:
     """Generate a summary using OpenAI's API."""
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that creates concise, informative summaries of YouTube video transcripts."},
                 {"role": "user", "content": f"Please summarize the following transcript in 3-4 paragraphs, highlighting the main points and key takeaways:\n\n{transcript}"}
@@ -76,11 +77,11 @@ def generate_summary(transcript: str) -> str:
         logger.error(f"Error generating summary: {e}")
         return "Error generating summary"
 
-def send_telegram_message(video_title: str, summary: str, video_url: str) -> None:
+async def send_telegram_message(video_title: str, summary: str, video_url: str) -> None:
     """Send summary to Telegram channel."""
     try:
         message = f"🎥 *{video_title}*\n\n{summary}\n\n🔗 Watch the video: {video_url}"
-        telegram_bot.send_message(
+        await telegram_bot.send_message(
             chat_id=os.getenv('TELEGRAM_CHANNEL_ID'),
             text=message,
             parse_mode='Markdown'
@@ -88,7 +89,7 @@ def send_telegram_message(video_title: str, summary: str, video_url: str) -> Non
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
 
-def check_new_videos():
+async def check_new_videos():
     """Check for new videos from monitored channels."""
     channel_ids = os.getenv('YOUTUBE_CHANNEL_IDS').split(',')
     
@@ -103,8 +104,8 @@ def check_new_videos():
                 continue
                 
             # Check if video is recent (within last 24 hours)
-            published_at = datetime.strptime(video['snippet']['publishedAt'], '%Y-%m-%dT%H:%M:%SZ')
-            if datetime.utcnow() - published_at > timedelta(hours=24):
+            published_at = datetime.strptime(video['snippet']['publishedAt'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=UTC)
+            if datetime.now(UTC) - published_at > timedelta(hours=24):
                 continue
                 
             logger.info(f"Processing new video: {video['snippet']['title']}")
@@ -116,7 +117,7 @@ def check_new_videos():
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
                 
                 # Send to Telegram
-                send_telegram_message(video['snippet']['title'], summary, video_url)
+                await send_telegram_message(video['snippet']['title'], summary, video_url)
                 
                 # Mark as processed
                 processed_videos.add(video_id)
@@ -124,20 +125,17 @@ def check_new_videos():
                 # Sleep to avoid rate limits
                 time.sleep(2)
 
-def main():
+async def main():
     """Main function to run the bot."""
     logger.info("Starting YouTube Summary Bot...")
     
-    # Schedule the check_new_videos function to run every hour
-    schedule.every(1).hours.do(check_new_videos)
-    
     # Run immediately on startup
-    check_new_videos()
+    await check_new_videos()
     
-    # Keep the script running
+    # Schedule the check_new_videos function to run every hour
     while True:
-        schedule.run_pending()
-        time.sleep(60)
+        await check_new_videos()
+        await asyncio.sleep(3600)  # Sleep for 1 hour
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 
