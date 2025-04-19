@@ -29,12 +29,32 @@ class YouTubeSummaryBot:
         self.youtube_channel_id = youtube_channel_id
         self.telegram_channel_id = telegram_channel_id
         self.prompt = prompt
-        self.processed_videos = set()
+        self.processed_videos = self.load_processed_videos()
         
         # Initialize API clients
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.telegram_bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+    def load_processed_videos(self) -> set:
+        """Load processed videos from JSON file."""
+        try:
+            with open('processed_videos.json', 'r') as f:
+                data = json.load(f)
+                return set(data.get('processed_videos', []))
+        except FileNotFoundError:
+            return set()
+        except json.JSONDecodeError:
+            logger.error("Error reading processed_videos.json, starting with empty set")
+            return set()
+
+    def save_processed_videos(self):
+        """Save processed videos to JSON file."""
+        try:
+            with open('processed_videos.json', 'w') as f:
+                json.dump({'processed_videos': list(self.processed_videos)}, f)
+        except Exception as e:
+            logger.error(f"Error saving processed videos: {e}")
 
     def get_channel_uploads(self) -> List[Dict]:
         """Fetch recent uploads from a YouTube channel."""
@@ -127,8 +147,9 @@ class YouTubeSummaryBot:
                 # Send to Telegram
                 await self.send_telegram_message(video['snippet']['title'], summary, video_url)
                 
-                # Mark as processed
+                # Mark as processed and save
                 self.processed_videos.add(video_id)
+                self.save_processed_videos()
                 
                 # Sleep to avoid rate limits
                 time.sleep(2)
