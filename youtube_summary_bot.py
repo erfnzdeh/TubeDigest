@@ -65,6 +65,11 @@ class YouTubeSummaryBot:
                 id=self.youtube_channel_id
             ).execute()
             
+            # Check if the response contains items
+            if 'items' not in channel_response or not channel_response['items']:
+                logger.error(f"No channel found for ID: {self.youtube_channel_id}")
+                return []
+                
             uploads_playlist_id = channel_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
             
             # Get recent videos from uploads playlist
@@ -74,10 +79,26 @@ class YouTubeSummaryBot:
                 maxResults=5
             ).execute()
             
+            # Check if the response contains items
+            if 'items' not in playlist_response:
+                logger.error(f"No videos found in playlist: {uploads_playlist_id}")
+                return []
+                
             return playlist_response['items']
         except Exception as e:
             logger.error(f"Error fetching channel uploads: {e}")
             return []
+
+    def is_short(self, video_id: str) -> bool:
+        """Check if a video is a YouTube Short using the URL format."""
+        try:
+            # Check if the video URL contains "/shorts/"
+            # This is the most reliable way to identify Shorts
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            return "/shorts/" in video_url
+        except Exception as e:
+            logger.error(f"Error checking if video {video_id} is a Short: {e}")
+            return False
 
     def get_video_transcript(self, video_id: str) -> str:
         """Fetch transcript for a YouTube video."""
@@ -107,11 +128,19 @@ class YouTubeSummaryBot:
         backoff.expo,
         (Exception),
         max_tries=3,
-        max_time=30
+        max_time=60  # Increased timeout from 30 to 60 seconds
     )
     async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str) -> None:
         """Send summary to Telegram channel with retry logic."""
         try:
+            # Sanitize the text to prevent Markdown parsing errors
+            def sanitize_markdown(text):
+                # Escape special Markdown characters that might cause parsing errors
+                special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+                for char in special_chars:
+                    text = text.replace(char, '\\' + char)
+                return text
+            
             # Telegram caption limit is 1024 characters
             # Reserve space for formatting
             caption_limit = 900  # 1024 - ~124 (for formatting)
@@ -125,12 +154,22 @@ class YouTubeSummaryBot:
                 caption += "\n\n_continues in next message_"
             
             # Send the first message with the thumbnail
-            sent_message = await self.telegram_bot.send_photo(
-                chat_id=self.telegram_channel_id,
-                photo=thumbnail_url,
-                caption=caption,
-                parse_mode='Markdown'
-            )
+            try:
+                sent_message = await self.telegram_bot.send_photo(
+                    chat_id=self.telegram_channel_id,
+                    photo=thumbnail_url,
+                    caption=caption,
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                # If Markdown parsing fails, try again without Markdown
+                logger.warning(f"Markdown parsing failed, retrying without Markdown: {e}")
+                sent_message = await self.telegram_bot.send_photo(
+                    chat_id=self.telegram_channel_id,
+                    photo=thumbnail_url,
+                    caption=sanitize_markdown(caption),
+                    parse_mode=None
+                )
             
             # If summary is longer than the caption limit, send the rest as separate messages
             if len(summary) > caption_limit:
@@ -147,13 +186,25 @@ class YouTubeSummaryBot:
                     if remaining_summary[4000:]:
                         chunk += "\n\n_continues in next message_"
                     
-                    last_message = await self.telegram_bot.send_message(
-                        chat_id=self.telegram_channel_id,
-                        text=chunk,
-                        parse_mode='Markdown',
-                        reply_to_message_id=sent_message.message_id,
-                        disable_web_page_preview=True
-                    )
+                    try:
+                        last_message = await self.telegram_bot.send_message(
+                            chat_id=self.telegram_channel_id,
+                            text=chunk,
+                            parse_mode='Markdown',
+                            reply_to_message_id=sent_message.message_id,
+                            disable_web_page_preview=True
+                        )
+                    except Exception as e:
+                        # If Markdown parsing fails, try again without Markdown
+                        logger.warning(f"Markdown parsing failed for chunk, retrying without Markdown: {e}")
+                        last_message = await self.telegram_bot.send_message(
+                            chat_id=self.telegram_channel_id,
+                            text=sanitize_markdown(chunk),
+                            parse_mode=None,
+                            reply_to_message_id=sent_message.message_id,
+                            disable_web_page_preview=True
+                        )
+                    
                     remaining_summary = remaining_summary[4000:]
                 
                 # Add source information to the last message
@@ -161,16 +212,70 @@ class YouTubeSummaryBot:
                     source_info = f"\n\nSource: [{video_title}]({video_url})"
                     # Check if adding source info would exceed message limit
                     if len(chunk) + len(source_info) <= 4000:
-                        # Edit the last message to add source info
-                        await self.telegram_bot.edit_message_text(
-                            chat_id=self.telegram_channel_id,
-                            message_id=last_message.message_id,
-                            text=chunk + source_info,
-                            parse_mode='Markdown',
-                            disable_web_page_preview=True
-                        )
+                        try:
+                            # Edit the last message to add source info
+                            await self.telegram_bot.edit_message_text(
+                                chat_id=self.telegram_channel_id,
+                                message_id=last_message.message_id,
+                                text=chunk + source_info,
+                                parse_mode='Markdown',
+                                disable_web_page_preview=True
+                            )
+                        except Exception as e:
+                            # If Markdown parsing fails, try again without Markdown
+                            logger.warning(f"Markdown parsing failed for edited message, retrying without Markdown: {e}")
+                            await self.telegram_bot.edit_message_text(
+                                chat_id=self.telegram_channel_id,
+                                message_id=last_message.message_id,
+                                text=sanitize_markdown(chunk + source_info),
+                                parse_mode=None,
+                                disable_web_page_preview=True
+                            )
                     else:
                         # Send source info as a separate message if it would exceed limit
+                        try:
+                            await self.telegram_bot.send_message(
+                                chat_id=self.telegram_channel_id,
+                                text=source_info,
+                                parse_mode='Markdown',
+                                reply_to_message_id=sent_message.message_id,
+                                disable_web_page_preview=True
+                            )
+                        except Exception as e:
+                            # If Markdown parsing fails, try again without Markdown
+                            logger.warning(f"Markdown parsing failed for source info, retrying without Markdown: {e}")
+                            await self.telegram_bot.send_message(
+                                chat_id=self.telegram_channel_id,
+                                text=sanitize_markdown(source_info),
+                                parse_mode=None,
+                                reply_to_message_id=sent_message.message_id,
+                                disable_web_page_preview=True
+                            )
+            else:
+                # If summary fits in one message, add source info to it
+                source_info = f"\n\nSource: {video_title} - {video_url}"
+                # Check if adding source info would exceed caption limit
+                if len(caption) + len(source_info) <= caption_limit:
+                    try:
+                        # Edit the message to add source info
+                        await self.telegram_bot.edit_message_caption(
+                            chat_id=self.telegram_channel_id,
+                            message_id=sent_message.message_id,
+                            caption=caption + source_info,
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        # If Markdown parsing fails, try again without Markdown
+                        logger.warning(f"Markdown parsing failed for caption edit, retrying without Markdown: {e}")
+                        await self.telegram_bot.edit_message_caption(
+                            chat_id=self.telegram_channel_id,
+                            message_id=sent_message.message_id,
+                            caption=sanitize_markdown(caption + source_info),
+                            parse_mode=None
+                        )
+                else:
+                    # Send source info as a separate message if it would exceed limit
+                    try:
                         await self.telegram_bot.send_message(
                             chat_id=self.telegram_channel_id,
                             text=source_info,
@@ -178,27 +283,16 @@ class YouTubeSummaryBot:
                             reply_to_message_id=sent_message.message_id,
                             disable_web_page_preview=True
                         )
-            else:
-                # If summary fits in one message, add source info to it
-                source_info = f"\n\nSource: [{video_title}]({video_url})"
-                # Check if adding source info would exceed caption limit
-                if len(caption) + len(source_info) <= caption_limit:
-                    # Edit the message to add source info
-                    await self.telegram_bot.edit_message_caption(
-                        chat_id=self.telegram_channel_id,
-                        message_id=sent_message.message_id,
-                        caption=caption + source_info,
-                        parse_mode='Markdown'
-                    )
-                else:
-                    # Send source info as a separate message if it would exceed limit
-                    await self.telegram_bot.send_message(
-                        chat_id=self.telegram_channel_id,
-                        text=source_info,
-                        parse_mode='Markdown',
-                        reply_to_message_id=sent_message.message_id,
-                        disable_web_page_preview=True
-                    )
+                    except Exception as e:
+                        # If Markdown parsing fails, try again without Markdown
+                        logger.warning(f"Markdown parsing failed for source info, retrying without Markdown: {e}")
+                        await self.telegram_bot.send_message(
+                            chat_id=self.telegram_channel_id,
+                            text=sanitize_markdown(source_info),
+                            parse_mode=None,
+                            reply_to_message_id=sent_message.message_id,
+                            disable_web_page_preview=True
+                        )
             
             logger.info(f"Successfully sent message for video: {video_title}")
         except Exception as e:
@@ -216,6 +310,14 @@ class YouTubeSummaryBot:
             
             # Skip if already processed
             if video_id in self.processed_videos:
+                continue
+                
+            # Skip if it's a Short
+            if self.is_short(video_id):
+                logger.info(f"Skipping Short: {video['snippet']['title']}")
+                # Mark as processed to avoid checking it again
+                self.processed_videos.add(video_id)
+                self.save_processed_videos()
                 continue
                 
             logger.info(f"Processing new video: {video['snippet']['title']}")
