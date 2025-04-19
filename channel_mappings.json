@@ -1,19 +1,75 @@
 {
   "channel_mappings": [
     {
+      "channel_name": "Fireship",
       "youtube_channel_id": "UCsBjURrPoezykLs9EqgamOA",
       "telegram_channel_id": "-1002524033206",
       "prompt": {
-        "system": "You are a helpful assistant that creates telegram posts from YouTube video transcripts. Focus on technical content and code explanations.",
-        "user": "Please write a telegram post that has a title and then a body from the following transcript in 3-4 paragraphs with emojis, highlighting the main points and key takeaways. Include any code snippets or technical details that are important:\n\n{transcript}"
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
       }
     },
     {
-      "youtube_channel_id": "UC-uhvujip5deVcEtLxnW8qg", 
+      "channel_name": "Fireship Shorts",
+      "youtube_channel_id": "UC-uhvujip5deVcEtLxnW8qg",
       "telegram_channel_id": "-1002650739882",
       "prompt": {
-        "system": "You are a helpful assistant that creates telegram posts from YouTube video transcripts. Focus on business and entrepreneurship content.",
-        "user": "Please write a telegram post that has a title and then a body from the following transcript in 3-4 paragraphs, highlighting the main business insights, strategies, and actionable takeaways:\n\n{transcript}"
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "Forbes",
+      "youtube_channel_id": "UCG-KntY7aVnIG_EO7QPS2Yg",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "TLDR News",
+      "youtube_channel_id": "UCqfd_IAhUK2g0F1KxJX4xww",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "Wall Street Journal",
+      "youtube_channel_id": "UCqK_GSMbpiV8spNWD8wQAQ",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "The Economist",
+      "youtube_channel_id": "UCe02lGcO-ahAURWuxAJnjdA",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "Bloomberg",
+      "youtube_channel_id": "UCb1GdyU1hoXZuQe7B4xxVbQ",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
+      }
+    },
+    {
+      "channel_name": "Vox",
+      "youtube_channel_id": "UCcefcZRL2oaA_uBNeo5UOWg",
+      "telegram_channel_id": "-1002537826233",
+      "prompt": {
+        "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
+        "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title, followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth:\n\n{transcript}"
       }
     }
   ]
