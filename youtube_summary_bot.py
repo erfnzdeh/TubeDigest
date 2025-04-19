@@ -101,7 +101,7 @@ class YouTubeSummaryBot:
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            return "Error generating summary"
+            raise
 
     @backoff.on_exception(
         backoff.expo,
@@ -109,15 +109,98 @@ class YouTubeSummaryBot:
         max_tries=3,
         max_time=30
     )
-    async def send_telegram_message(self, video_title: str, summary: str, video_url: str) -> None:
+    async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str) -> None:
         """Send summary to Telegram channel with retry logic."""
         try:
-            message = f"{summary}\n\nSource: [{video_title}]({video_url})"
-            await self.telegram_bot.send_message(
+            # Telegram caption limit is 1024 characters
+            # Reserve space for formatting
+            caption_limit = 900  # 1024 - ~124 (for formatting)
+            
+            # First message with thumbnail and beginning of summary
+            first_message = summary[:caption_limit] if len(summary) > caption_limit else summary
+            caption = first_message
+            
+            # Add continuation indicator to the first message if there's more content
+            if len(summary) > caption_limit:
+                caption += "\n\n_continues in next message_"
+            
+            # Send the first message with the thumbnail
+            sent_message = await self.telegram_bot.send_photo(
                 chat_id=self.telegram_channel_id,
-                text=message,
-                parse_mode='Markdown'
+                photo=thumbnail_url,
+                caption=caption,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
             )
+            
+            # If summary is longer than the caption limit, send the rest as separate messages
+            if len(summary) > caption_limit:
+                remaining_summary = summary[caption_limit:]
+                # Split the remaining summary into chunks that fit within Telegram's message limit
+                # Keep track of the last message to add the source to it
+                last_message = None
+                message_count = 1
+                
+                while remaining_summary:
+                    chunk = remaining_summary[:4000]  # Telegram message limit is 4096
+                    message_count += 1
+                    # Add continuation indicator if there's more content coming
+                    if remaining_summary[4000:]:
+                        chunk += "\n\n_continues in next message_"
+                    
+                    last_message = await self.telegram_bot.send_message(
+                        chat_id=self.telegram_channel_id,
+                        text=chunk,
+                        parse_mode='Markdown',
+                        reply_to_message_id=sent_message.message_id,
+                        disable_web_page_preview=True
+                    )
+                    remaining_summary = remaining_summary[4000:]
+                
+                # Add source information to the last message
+                if last_message:
+                    source_info = f"\n\nSource: [{video_title}]({video_url})"
+                    # Check if adding source info would exceed message limit
+                    if len(chunk) + len(source_info) <= 4000:
+                        # Edit the last message to add source info
+                        await self.telegram_bot.edit_message_text(
+                            chat_id=self.telegram_channel_id,
+                            message_id=last_message.message_id,
+                            text=chunk + source_info,
+                            parse_mode='Markdown',
+                            disable_web_page_preview=True
+                        )
+                    else:
+                        # Send source info as a separate message if it would exceed limit
+                        await self.telegram_bot.send_message(
+                            chat_id=self.telegram_channel_id,
+                            text=source_info,
+                            parse_mode='Markdown',
+                            reply_to_message_id=sent_message.message_id,
+                            disable_web_page_preview=True
+                        )
+            else:
+                # If summary fits in one message, add source info to it
+                source_info = f"\n\nSource: [{video_title}]({video_url})"
+                # Check if adding source info would exceed caption limit
+                if len(caption) + len(source_info) <= caption_limit:
+                    # Edit the message to add source info
+                    await self.telegram_bot.edit_message_caption(
+                        chat_id=self.telegram_channel_id,
+                        message_id=sent_message.message_id,
+                        caption=caption + source_info,
+                        parse_mode='Markdown'
+                    )
+                else:
+                    # Send source info as a separate message if it would exceed limit
+                    await self.telegram_bot.send_message(
+                        chat_id=self.telegram_channel_id,
+                        text=source_info,
+                        parse_mode='Markdown',
+                        reply_to_message_id=sent_message.message_id,
+                        disable_web_page_preview=True
+                    )
+            
             logger.info(f"Successfully sent message for video: {video_title}")
         except Exception as e:
             logger.error(f"Error sending Telegram message for video {video_title}: {str(e)}")
@@ -141,15 +224,34 @@ class YouTubeSummaryBot:
             # Get transcript and generate summary
             transcript = self.get_video_transcript(video_id)
             if transcript:
-                summary = self.generate_summary(transcript)
-                video_url = f"https://www.youtube.com/watch?v={video_id}"
-                
-                # Send to Telegram
-                await self.send_telegram_message(video['snippet']['title'], summary, video_url)
-                
-                # Mark as processed and save
-                self.processed_videos.add(video_id)
-                self.save_processed_videos()
+                try:
+                    summary = self.generate_summary(transcript)
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"
+                    
+                    # Get the highest quality thumbnail available
+                    thumbnails = video['snippet']['thumbnails']
+                    # YouTube provides different sizes: default, medium, high, standard, maxres
+                    # Try to get the highest quality available
+                    if 'maxres' in thumbnails:
+                        thumbnail_url = thumbnails['maxres']['url']
+                    elif 'standard' in thumbnails:
+                        thumbnail_url = thumbnails['standard']['url']
+                    elif 'high' in thumbnails:
+                        thumbnail_url = thumbnails['high']['url']
+                    elif 'medium' in thumbnails:
+                        thumbnail_url = thumbnails['medium']['url']
+                    else:
+                        thumbnail_url = thumbnails['default']['url']
+                    
+                    # Send to Telegram
+                    await self.send_telegram_message(video['snippet']['title'], summary, video_url, thumbnail_url)
+                    
+                    # Mark as processed and save
+                    self.processed_videos.add(video_id)
+                    self.save_processed_videos()
+                except Exception as e:
+                    logger.error(f"Failed to process video {video_id}: {e}")
+                    # Don't mark as processed so we can try again later
                 
                 # Sleep to avoid rate limits
                 time.sleep(2)
