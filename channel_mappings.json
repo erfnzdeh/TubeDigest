@@ -1,0 +1,20 @@
+{
+  "channel_mappings": [
+    {
+      "youtube_channel_id": "UCsBjURrPoezykLs9EqgamOA",
+      "telegram_channel_id": "-1002524033206",
+      "prompt": {
+        "system": "You are a helpful assistant that creates telegram posts from YouTube video transcripts. Focus on technical content and code explanations.",
+        "user": "Please write a telegram post that has a title and then a body from the following transcript in 3-4 paragraphs with emojis, highlighting the main points and key takeaways. Include any code snippets or technical details that are important:\n\n{transcript}"
+      }
+    },
+    {
+      "youtube_channel_id": "UC-uhvujip5deVcEtLxnW8qg", 
+      "telegram_channel_id": "-1002650739882",
+      "prompt": {
+        "system": "You are a helpful assistant that creates telegram posts from YouTube video transcripts. Focus on business and entrepreneurship content.",
+        "user": "Please write a telegram post that has a title and then a body from the following transcript in 3-4 paragraphs, highlighting the main business insights, strategies, and actionable takeaways:\n\n{transcript}"
+      }
+    }
+  ]
+}
