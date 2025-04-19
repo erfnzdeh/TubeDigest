@@ -66,10 +66,10 @@ def generate_summary(transcript: str) -> str:
     """Generate a summary using OpenAI's API."""
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that creates concise, informative summaries of YouTube video transcripts."},
-                {"role": "user", "content": f"Please summarize the following transcript in 3-4 paragraphs, highlighting the main points and key takeaways:\n\n{transcript}"}
+                {"role": "system", "content": "You are a helpful assistant that creates telegram posts from YouTube video transcripts."},
+                {"role": "user", "content": f"Please write a telegram post that has a title and then a body from the following transcript in 3-4 paragraphs, highlighting the main points and key takeaways:\n\n{transcript}"}
             ]
         )
         return response.choices[0].message.content
@@ -80,7 +80,7 @@ def generate_summary(transcript: str) -> str:
 async def send_telegram_message(video_title: str, summary: str, video_url: str) -> None:
     """Send summary to Telegram channel."""
     try:
-        message = f"🎥 *{video_title}*\n\n{summary}\n\n🔗 Watch the video: {video_url}"
+        message = f"{summary}\n\nSource: [{video_title}]({video_url})"
         await telegram_bot.send_message(
             chat_id=os.getenv('TELEGRAM_CHANNEL_ID'),
             text=message,
@@ -91,6 +91,7 @@ async def send_telegram_message(video_title: str, summary: str, video_url: str) 
 
 async def check_new_videos():
     """Check for new videos from monitored channels."""
+    logger.info(f"Checking for new videos...")
     channel_ids = os.getenv('YOUTUBE_CHANNEL_IDS').split(',')
     
     for channel_id in channel_ids:
@@ -104,9 +105,9 @@ async def check_new_videos():
                 continue
                 
             # Check if video is recent (within last 24 hours)
-            published_at = datetime.strptime(video['snippet']['publishedAt'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=UTC)
-            if datetime.now(UTC) - published_at > timedelta(hours=24):
-                continue
+            # published_at = datetime.strptime(video['snippet']['publishedAt'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=UTC)
+            # if datetime.now(UTC) - published_at > timedelta(hours=24):
+            #     continue
                 
             logger.info(f"Processing new video: {video['snippet']['title']}")
             
@@ -128,9 +129,6 @@ async def check_new_videos():
 async def main():
     """Main function to run the bot."""
     logger.info("Starting YouTube Summary Bot...")
-    
-    # Run immediately on startup
-    await check_new_videos()
     
     # Schedule the check_new_videos function to run every hour
     while True:
