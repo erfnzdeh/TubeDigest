@@ -129,8 +129,7 @@ class YouTubeSummaryBot:
                 chat_id=self.telegram_channel_id,
                 photo=thumbnail_url,
                 caption=caption,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
+                parse_mode='Markdown'
             )
             
             # If summary is longer than the caption limit, send the rest as separate messages
