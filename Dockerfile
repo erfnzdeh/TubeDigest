@@ -30,6 +30,10 @@ RUN useradd -m appuser && chown -R appuser:appuser /app /data
 # Development stage
 FROM common-build-stage as development
 
+# Install dependencies again in development stage
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=development
 ENV YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
@@ -43,6 +47,10 @@ CMD ["python", "youtube_summary_bot.py"]
 
 # Production stage
 FROM common-build-stage as production
+
+# Install dependencies again in production stage
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
