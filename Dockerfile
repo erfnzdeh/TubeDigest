@@ -1,5 +1,5 @@
-# Use Python 3.11 as the base image
-FROM python:3.11-slim
+# Common build stage
+FROM python:3.11-slim as common-build-stage
 
 # Set working directory
 WORKDIR /app
@@ -18,18 +18,26 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create data directory for persistent storage
 RUN mkdir -p /data
 
-# Copy channel mappings first to ensure it's available
-COPY channel_mappings.json /data/
-
-# Copy the rest of the application
+# Copy the application
 COPY . .
 
-# Create a non-root user and switch to it
+# Create a non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app /data
-USER appuser
 
-# Set environment variables
+# Development stage
+FROM common-build-stage as development
+
 ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=development
 
-# Command to run the application
+USER appuser
+CMD ["python", "youtube_summary_bot.py"]
+
+# Production stage
+FROM common-build-stage as production
+
+ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
+
+USER appuser
 CMD ["python", "youtube_summary_bot.py"] 
