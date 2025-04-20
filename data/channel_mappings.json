@@ -2,7 +2,7 @@
   "channel_mappings": [
     {
       "channel_name": "Forbes",
-      "youtube_channel_id": "UCG-KntY7aVnIG_EO7QPS2Yg",
+      "youtube_channel_id": "UCmh7afBz-uWwOSSNTqUBAhg",
       "telegram_channel_id": "-1002537826233",
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",

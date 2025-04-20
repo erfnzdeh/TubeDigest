@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Define data directory
-DATA_DIR = '/data'
+DATA_DIR = 'data'
 
 class YouTubeSummaryBot:
     def __init__(self):
