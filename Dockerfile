@@ -16,16 +16,16 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create data directory for persistent storage
-RUN mkdir -p /app/data
+RUN mkdir -p /data
 
 # Copy channel mappings first to ensure it's available
-COPY channel_mappings.json /app/data/
+COPY channel_mappings.json /data/
 
 # Copy the rest of the application
 COPY . .
 
 # Create a non-root user and switch to it
-RUN useradd -m appuser && chown -R appuser:appuser /app
+RUN useradd -m appuser && chown -R appuser:appuser /app /data
 USER appuser
 
 # Set environment variables

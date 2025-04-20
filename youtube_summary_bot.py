@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# Define data directory
+DATA_DIR = '/data'
+
 class YouTubeSummaryBot:
     def __init__(self):
         # Initialize API clients
@@ -43,7 +46,7 @@ class YouTubeSummaryBot:
     def load_channel_mappings(self) -> List[Dict]:
         """Load channel mappings from JSON file."""
         try:
-            with open('channel_mappings.json', 'r') as f:
+            with open(os.path.join(DATA_DIR, 'channel_mappings.json'), 'r') as f:
                 config = json.load(f)
                 return config['channel_mappings']
         except FileNotFoundError:
@@ -55,7 +58,7 @@ class YouTubeSummaryBot:
 
     def load_processed_videos(self, youtube_channel_id: str) -> set:
         """Load processed videos from JSON file for a specific channel."""
-        filename = f'processed_videos_{youtube_channel_id}.json'
+        filename = os.path.join(DATA_DIR, f'processed_videos_{youtube_channel_id}.json')
         try:
             with open(filename, 'r') as f:
                 data = json.load(f)
@@ -68,7 +71,7 @@ class YouTubeSummaryBot:
 
     def save_processed_videos(self, youtube_channel_id: str):
         """Save processed videos to JSON file for a specific channel."""
-        filename = f'processed_videos_{youtube_channel_id}.json'
+        filename = os.path.join(DATA_DIR, f'processed_videos_{youtube_channel_id}.json')
         try:
             with open(filename, 'w') as f:
                 json.dump({'processed_videos': list(self.processed_videos[youtube_channel_id])}, f)
