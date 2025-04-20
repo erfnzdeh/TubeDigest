@@ -156,13 +156,25 @@ class YouTubeSummaryBot:
             # Reserve space for formatting
             caption_limit = 900  # 1024 - ~124 (for formatting)
             
+            def split_at_word_boundary(text: str, max_length: int) -> tuple[str, str]:
+                """Split text at the last complete word before max_length."""
+                if len(text) <= max_length:
+                    return text, ""
+                
+                # Find the last space before max_length
+                split_index = text.rfind(' ', 0, max_length)
+                if split_index == -1:  # No space found, force split at max_length
+                    split_index = max_length
+                
+                return text[:split_index].strip(), text[split_index:].strip()
+            
             # First message with thumbnail and beginning of summary
-            first_message = summary[:caption_limit] if len(summary) > caption_limit else summary
+            first_message, remaining_summary = split_at_word_boundary(summary, caption_limit)
             caption = first_message
             
             # Add continuation indicator to the first message if there's more content
-            if len(summary) > caption_limit:
-                caption += "\n\n⬇️⬇️⬇️⬇️"
+            if remaining_summary:
+                caption += " ⬇️"
             
             # Send the first message with the thumbnail
             # Set a longer timeout for the API call
@@ -177,19 +189,17 @@ class YouTubeSummaryBot:
             )
             
             # If summary is longer than the caption limit, send the rest as separate messages
-            if len(summary) > caption_limit:
-                remaining_summary = summary[caption_limit:]
-                # Split the remaining summary into chunks that fit within Telegram's message limit
+            if remaining_summary:
                 # Keep track of the last message to add the source to it
                 last_message = None
                 message_count = 1
                 
                 while remaining_summary:
-                    chunk = remaining_summary[:4000]  # Telegram message limit is 4096
+                    chunk, remaining_summary = split_at_word_boundary(remaining_summary, 4000)  # Telegram message limit is 4096
                     message_count += 1
                     # Add continuation indicator if there's more content coming
-                    if remaining_summary[4000:]:
-                        chunk += "\n\n⬇️⬇️⬇️⬇️"
+                    if remaining_summary:
+                        chunk += " ⬇️"
                     
                     # Set a longer timeout for the API call
                     last_message = await asyncio.wait_for(
@@ -202,8 +212,6 @@ class YouTubeSummaryBot:
                         ),
                         timeout=30  # 30 second timeout
                     )
-                    
-                    remaining_summary = remaining_summary[4000:]
                 
                 # Add source information to the last message
                 if last_message:
