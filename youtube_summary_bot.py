@@ -25,49 +25,68 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 class YouTubeSummaryBot:
-    def __init__(self, youtube_channel_id: str, telegram_channel_id: str, prompt: Dict):
-        self.youtube_channel_id = youtube_channel_id
-        self.telegram_channel_id = telegram_channel_id
-        self.prompt = prompt
-        self.processed_videos = self.load_processed_videos()
-        
+    def __init__(self):
         # Initialize API clients
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.telegram_bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Load channel mappings
+        self.channel_mappings = self.load_channel_mappings()
+        
+        # Initialize processed videos tracking for each channel
+        self.processed_videos = {}
+        for mapping in self.channel_mappings:
+            youtube_channel_id = mapping['youtube_channel_id']
+            self.processed_videos[youtube_channel_id] = self.load_processed_videos(youtube_channel_id)
 
-    def load_processed_videos(self) -> set:
-        """Load processed videos from JSON file."""
+    def load_channel_mappings(self) -> List[Dict]:
+        """Load channel mappings from JSON file."""
         try:
-            with open('processed_videos.json', 'r') as f:
+            with open('channel_mappings.json', 'r') as f:
+                config = json.load(f)
+                return config['channel_mappings']
+        except FileNotFoundError:
+            logger.error("channel_mappings.json file not found")
+            return []
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON format in channel_mappings.json")
+            return []
+
+    def load_processed_videos(self, youtube_channel_id: str) -> set:
+        """Load processed videos from JSON file for a specific channel."""
+        filename = f'processed_videos_{youtube_channel_id}.json'
+        try:
+            with open(filename, 'r') as f:
                 data = json.load(f)
                 return set(data.get('processed_videos', []))
         except FileNotFoundError:
             return set()
         except json.JSONDecodeError:
-            logger.error("Error reading processed_videos.json, starting with empty set")
+            logger.error(f"Error reading {filename}, starting with empty set")
             return set()
 
-    def save_processed_videos(self):
-        """Save processed videos to JSON file."""
+    def save_processed_videos(self, youtube_channel_id: str):
+        """Save processed videos to JSON file for a specific channel."""
+        filename = f'processed_videos_{youtube_channel_id}.json'
         try:
-            with open('processed_videos.json', 'w') as f:
-                json.dump({'processed_videos': list(self.processed_videos)}, f)
+            with open(filename, 'w') as f:
+                json.dump({'processed_videos': list(self.processed_videos[youtube_channel_id])}, f)
         except Exception as e:
-            logger.error(f"Error saving processed videos: {e}")
+            logger.error(f"Error saving processed videos for channel {youtube_channel_id}: {e}")
 
-    def get_channel_uploads(self) -> List[Dict]:
+    def get_channel_uploads(self, youtube_channel_id: str) -> List[Dict]:
         """Fetch recent uploads from a YouTube channel."""
         try:
             # Get channel's uploads playlist ID
             channel_response = self.youtube.channels().list(
                 part='contentDetails',
-                id=self.youtube_channel_id
+                id=youtube_channel_id
             ).execute()
             
             # Check if the response contains items
             if 'items' not in channel_response or not channel_response['items']:
-                logger.error(f"No channel found for ID: {self.youtube_channel_id}")
+                logger.error(f"No channel found for ID: {youtube_channel_id}")
                 return []
                 
             uploads_playlist_id = channel_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
@@ -86,7 +105,7 @@ class YouTubeSummaryBot:
                 
             return playlist_response['items']
         except Exception as e:
-            logger.error(f"Error fetching channel uploads: {e}")
+            logger.error(f"Error fetching channel uploads for {youtube_channel_id}: {e}")
             return []
 
     def is_short(self, video_id: str) -> bool:
@@ -109,14 +128,14 @@ class YouTubeSummaryBot:
             logger.error(f"Error fetching transcript: {e}")
             return ""
 
-    def generate_summary(self, transcript: str) -> str:
+    def generate_summary(self, transcript: str, prompt: Dict) -> str:
         """Generate a summary using OpenAI's API."""
         try:
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": self.prompt["system"]},
-                    {"role": "user", "content": self.prompt["user"].format(transcript=transcript)}
+                    {"role": "system", "content": prompt["system"]},
+                    {"role": "user", "content": prompt["user"].format(transcript=transcript)}
                 ]
             )
             return response.choices[0].message.content
@@ -127,20 +146,12 @@ class YouTubeSummaryBot:
     @backoff.on_exception(
         backoff.expo,
         (Exception),
-        max_tries=3,
-        max_time=60  # Increased timeout from 30 to 60 seconds
+        max_tries=5,  # Increased from 3 to 5
+        max_time=120  # Increased from 60 to 120 seconds
     )
-    async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str) -> None:
+    async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str, telegram_channel_id: str) -> None:
         """Send summary to Telegram channel with retry logic."""
         try:
-            # Sanitize the text to prevent Markdown parsing errors
-            def sanitize_markdown(text):
-                # Escape special Markdown characters that might cause parsing errors
-                special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-                for char in special_chars:
-                    text = text.replace(char, '\\' + char)
-                return text
-            
             # Telegram caption limit is 1024 characters
             # Reserve space for formatting
             caption_limit = 900  # 1024 - ~124 (for formatting)
@@ -151,25 +162,19 @@ class YouTubeSummaryBot:
             
             # Add continuation indicator to the first message if there's more content
             if len(summary) > caption_limit:
-                caption += "\n\n_continues in next message_"
+                caption += "\n\n⬇️⬇️⬇️⬇️"
             
             # Send the first message with the thumbnail
-            try:
-                sent_message = await self.telegram_bot.send_photo(
-                    chat_id=self.telegram_channel_id,
+            # Set a longer timeout for the API call
+            sent_message = await asyncio.wait_for(
+                self.telegram_bot.send_photo(
+                    chat_id=telegram_channel_id,
                     photo=thumbnail_url,
                     caption=caption,
                     parse_mode='Markdown'
-                )
-            except Exception as e:
-                # If Markdown parsing fails, try again without Markdown
-                logger.warning(f"Markdown parsing failed, retrying without Markdown: {e}")
-                sent_message = await self.telegram_bot.send_photo(
-                    chat_id=self.telegram_channel_id,
-                    photo=thumbnail_url,
-                    caption=sanitize_markdown(caption),
-                    parse_mode=None
-                )
+                ),
+                timeout=30  # 30 second timeout
+            )
             
             # If summary is longer than the caption limit, send the rest as separate messages
             if len(summary) > caption_limit:
@@ -184,26 +189,19 @@ class YouTubeSummaryBot:
                     message_count += 1
                     # Add continuation indicator if there's more content coming
                     if remaining_summary[4000:]:
-                        chunk += "\n\n_continues in next message_"
+                        chunk += "\n\n⬇️⬇️⬇️⬇️"
                     
-                    try:
-                        last_message = await self.telegram_bot.send_message(
-                            chat_id=self.telegram_channel_id,
+                    # Set a longer timeout for the API call
+                    last_message = await asyncio.wait_for(
+                        self.telegram_bot.send_message(
+                            chat_id=telegram_channel_id,
                             text=chunk,
                             parse_mode='Markdown',
                             reply_to_message_id=sent_message.message_id,
                             disable_web_page_preview=True
-                        )
-                    except Exception as e:
-                        # If Markdown parsing fails, try again without Markdown
-                        logger.warning(f"Markdown parsing failed for chunk, retrying without Markdown: {e}")
-                        last_message = await self.telegram_bot.send_message(
-                            chat_id=self.telegram_channel_id,
-                            text=sanitize_markdown(chunk),
-                            parse_mode=None,
-                            reply_to_message_id=sent_message.message_id,
-                            disable_web_page_preview=True
-                        )
+                        ),
+                        timeout=30  # 30 second timeout
+                    )
                     
                     remaining_summary = remaining_summary[4000:]
                 
@@ -212,87 +210,58 @@ class YouTubeSummaryBot:
                     source_info = f"\n\nSource: [{video_title}]({video_url})"
                     # Check if adding source info would exceed message limit
                     if len(chunk) + len(source_info) <= 4000:
-                        try:
-                            # Edit the last message to add source info
-                            await self.telegram_bot.edit_message_text(
-                                chat_id=self.telegram_channel_id,
+                        # Set a longer timeout for the API call
+                        await asyncio.wait_for(
+                            self.telegram_bot.edit_message_text(
+                                chat_id=telegram_channel_id,
                                 message_id=last_message.message_id,
                                 text=chunk + source_info,
                                 parse_mode='Markdown',
                                 disable_web_page_preview=True
-                            )
-                        except Exception as e:
-                            # If Markdown parsing fails, try again without Markdown
-                            logger.warning(f"Markdown parsing failed for edited message, retrying without Markdown: {e}")
-                            await self.telegram_bot.edit_message_text(
-                                chat_id=self.telegram_channel_id,
-                                message_id=last_message.message_id,
-                                text=sanitize_markdown(chunk + source_info),
-                                parse_mode=None,
-                                disable_web_page_preview=True
-                            )
+                            ),
+                            timeout=30  # 30 second timeout
+                        )
                     else:
                         # Send source info as a separate message if it would exceed limit
-                        try:
-                            await self.telegram_bot.send_message(
-                                chat_id=self.telegram_channel_id,
+                        # Set a longer timeout for the API call
+                        await asyncio.wait_for(
+                            self.telegram_bot.send_message(
+                                chat_id=telegram_channel_id,
                                 text=source_info,
                                 parse_mode='Markdown',
                                 reply_to_message_id=sent_message.message_id,
                                 disable_web_page_preview=True
-                            )
-                        except Exception as e:
-                            # If Markdown parsing fails, try again without Markdown
-                            logger.warning(f"Markdown parsing failed for source info, retrying without Markdown: {e}")
-                            await self.telegram_bot.send_message(
-                                chat_id=self.telegram_channel_id,
-                                text=sanitize_markdown(source_info),
-                                parse_mode=None,
-                                reply_to_message_id=sent_message.message_id,
-                                disable_web_page_preview=True
-                            )
+                            ),
+                            timeout=30  # 30 second timeout
+                        )
             else:
                 # If summary fits in one message, add source info to it
-                source_info = f"\n\nSource: {video_title} - {video_url}"
+                source_info = f"\n\nSource: [{video_title}]({video_url})"
                 # Check if adding source info would exceed caption limit
                 if len(caption) + len(source_info) <= caption_limit:
-                    try:
-                        # Edit the message to add source info
-                        await self.telegram_bot.edit_message_caption(
-                            chat_id=self.telegram_channel_id,
+                    # Set a longer timeout for the API call
+                    await asyncio.wait_for(
+                        self.telegram_bot.edit_message_caption(
+                            chat_id=telegram_channel_id,
                             message_id=sent_message.message_id,
                             caption=caption + source_info,
                             parse_mode='Markdown'
-                        )
-                    except Exception as e:
-                        # If Markdown parsing fails, try again without Markdown
-                        logger.warning(f"Markdown parsing failed for caption edit, retrying without Markdown: {e}")
-                        await self.telegram_bot.edit_message_caption(
-                            chat_id=self.telegram_channel_id,
-                            message_id=sent_message.message_id,
-                            caption=sanitize_markdown(caption + source_info),
-                            parse_mode=None
-                        )
+                        ),
+                        timeout=30  # 30 second timeout
+                    )
                 else:
                     # Send source info as a separate message if it would exceed limit
-                    try:
-                        await self.telegram_bot.send_message(
-                            chat_id=self.telegram_channel_id,
+                    # Set a longer timeout for the API call
+                    await asyncio.wait_for(
+                        self.telegram_bot.send_message(
+                            chat_id=telegram_channel_id,
                             text=source_info,
                             parse_mode='Markdown',
                             reply_to_message_id=sent_message.message_id,
                             disable_web_page_preview=True
-                        )
-                    except Exception as e:
-                        # If Markdown parsing fails, try again without Markdown
-                        logger.warning(f"Markdown parsing failed for source info, retrying without Markdown: {e}")
-                        await self.telegram_bot.send_message(
-                            chat_id=self.telegram_channel_id,
-                            text=sanitize_markdown(source_info),
-                            parse_mode=None,
-                            reply_to_message_id=sent_message.message_id,
-                            disable_web_page_preview=True
-                        )
+                        ),
+                        timeout=30  # 30 second timeout
+                    )
             
             logger.info(f"Successfully sent message for video: {video_title}")
         except Exception as e:
@@ -300,93 +269,86 @@ class YouTubeSummaryBot:
             raise
 
     async def check_new_videos(self):
-        """Check for new videos from monitored channel."""
-        logger.info(f"Checking for new videos for channel {self.youtube_channel_id}...")
-        
-        videos = self.get_channel_uploads()
-        
-        for video in videos:
-            video_id = video['snippet']['resourceId']['videoId']
+        """Check for new videos from all monitored channels."""
+        for mapping in self.channel_mappings:
+            youtube_channel_id = mapping['youtube_channel_id']
+            telegram_channel_id = mapping['telegram_channel_id']
+            prompt = mapping['prompt']
             
-            # Skip if already processed
-            if video_id in self.processed_videos:
-                continue
-                
-            # Skip if it's a Short
-            if self.is_short(video_id):
-                logger.info(f"Skipping Short: {video['snippet']['title']}")
-                # Mark as processed to avoid checking it again
-                self.processed_videos.add(video_id)
-                self.save_processed_videos()
-                continue
-                
-            logger.info(f"Processing new video: {video['snippet']['title']}")
+            logger.info(f"Checking for new videos for channel {youtube_channel_id}...")
             
-            # Get transcript and generate summary
-            transcript = self.get_video_transcript(video_id)
-            if transcript:
-                try:
-                    summary = self.generate_summary(transcript)
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    
-                    # Get the highest quality thumbnail available
-                    thumbnails = video['snippet']['thumbnails']
-                    # YouTube provides different sizes: default, medium, high, standard, maxres
-                    # Try to get the highest quality available
-                    if 'maxres' in thumbnails:
-                        thumbnail_url = thumbnails['maxres']['url']
-                    elif 'standard' in thumbnails:
-                        thumbnail_url = thumbnails['standard']['url']
-                    elif 'high' in thumbnails:
-                        thumbnail_url = thumbnails['high']['url']
-                    elif 'medium' in thumbnails:
-                        thumbnail_url = thumbnails['medium']['url']
-                    else:
-                        thumbnail_url = thumbnails['default']['url']
-                    
-                    # Send to Telegram
-                    await self.send_telegram_message(video['snippet']['title'], summary, video_url, thumbnail_url)
-                    
-                    # Mark as processed and save
-                    self.processed_videos.add(video_id)
-                    self.save_processed_videos()
-                except Exception as e:
-                    logger.error(f"Failed to process video {video_id}: {e}")
-                    # Don't mark as processed so we can try again later
+            videos = self.get_channel_uploads(youtube_channel_id)
+            
+            for video in videos:
+                video_id = video['snippet']['resourceId']['videoId']
                 
-                # Sleep to avoid rate limits
-                time.sleep(2)
+                # Skip if already processed
+                if video_id in self.processed_videos[youtube_channel_id]:
+                    continue
+                    
+                # Skip if it's a Short
+                if self.is_short(video_id):
+                    logger.info(f"Skipping Short: {video['snippet']['title']}")
+                    # Mark as processed to avoid checking it again
+                    self.processed_videos[youtube_channel_id].add(video_id)
+                    self.save_processed_videos(youtube_channel_id)
+                    continue
+                    
+                logger.info(f"Processing new video: {video['snippet']['title']}")
+                
+                # Get transcript and generate summary
+                transcript = self.get_video_transcript(video_id)
+                if transcript:
+                    try:
+                        summary = self.generate_summary(transcript, prompt)
+                        video_url = f"https://www.youtube.com/watch?v={video_id}"
+                        
+                        # Get the highest quality thumbnail available
+                        thumbnails = video['snippet']['thumbnails']
+                        # YouTube provides different sizes: default, medium, high, standard, maxres
+                        # Try to get the highest quality available
+                        if 'maxres' in thumbnails:
+                            thumbnail_url = thumbnails['maxres']['url']
+                        elif 'standard' in thumbnails:
+                            thumbnail_url = thumbnails['standard']['url']
+                        elif 'high' in thumbnails:
+                            thumbnail_url = thumbnails['high']['url']
+                        elif 'medium' in thumbnails:
+                            thumbnail_url = thumbnails['medium']['url']
+                        else:
+                            thumbnail_url = thumbnails['default']['url']
+                        
+                        # Send to Telegram
+                        await self.send_telegram_message(
+                            video['snippet']['title'], 
+                            summary, 
+                            video_url, 
+                            thumbnail_url,
+                            telegram_channel_id
+                        )
+                        
+                        # Mark as processed and save
+                        self.processed_videos[youtube_channel_id].add(video_id)
+                        self.save_processed_videos(youtube_channel_id)
+                    except Exception as e:
+                        logger.error(f"Failed to process video {video_id}: {e}")
+                        # Don't mark as processed so we can try again later
+                    
+                    # Sleep to avoid rate limits
+                    time.sleep(2)
 
     async def run(self):
         """Run the bot instance."""
-        logger.info(f"Starting YouTube Summary Bot for channel {self.youtube_channel_id}...")
+        logger.info("Starting YouTube Summary Bot...")
         
         while True:
             await self.check_new_videos()
             await asyncio.sleep(3600)  # Sleep for 1 hour
 
 async def main():
-    """Main function to run multiple bot instances."""
-    # Load channel mappings from JSON file
-    try:
-        with open('channel_mappings.json', 'r') as f:
-            config = json.load(f)
-            channel_mappings = config['channel_mappings']
-    except FileNotFoundError:
-        logger.error("channel_mappings.json file not found")
-        return
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON format in channel_mappings.json")
-        return
-    
-    bots = [YouTubeSummaryBot(
-        mapping['youtube_channel_id'], 
-        mapping['telegram_channel_id'],
-        mapping['prompt']
-    ) for mapping in channel_mappings]
-    
-    # Run all bots concurrently
-    await asyncio.gather(*(bot.run() for bot in bots))
+    """Main function to run the bot."""
+    bot = YouTubeSummaryBot()
+    await bot.run()
 
 if __name__ == "__main__":
     asyncio.run(main())
