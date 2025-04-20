@@ -15,8 +15,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create data directory for persistent storage
+RUN mkdir -p /app/data
+
 # Copy channel mappings first to ensure it's available
-COPY channel_mappings.json .
+COPY channel_mappings.json /app/data/
 
 # Copy the rest of the application
 COPY . .
