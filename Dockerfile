@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p /data
 
 # Copy channel mappings first to ensure it's available
-COPY channel_mappings.json /data/
+COPY data/channel_mappings.json /data/
 
 # Copy the rest of the application
 COPY . .
