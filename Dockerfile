@@ -33,6 +33,7 @@ FROM common-build-stage as development
 # Install dependencies again in development stage
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install backoff
 
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=development
