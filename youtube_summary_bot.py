@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta, UTC
 from typing import List, Dict
 import backoff
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 import schedule
 from dotenv import load_dotenv
@@ -26,6 +28,30 @@ load_dotenv()
 
 # Define data directory
 DATA_DIR = 'data'
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for health checks."""
+    
+    def do_GET(self):
+        if self.path == '/' or self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'TubeDigest Bot is running!')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        # Suppress HTTP server logs to avoid clutter
+        pass
+
+def start_health_server():
+    """Start a simple HTTP server for health checks."""
+    port = int(os.getenv('PORT', 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"Health check server starting on port {port}")
+    server.serve_forever()
 
 class YouTubeSummaryBot:
     def __init__(self):
@@ -358,6 +384,11 @@ class YouTubeSummaryBot:
 
 async def main():
     """Main function to run the bot."""
+    # Start health check server in a separate thread
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    # Create and run the bot
     bot = YouTubeSummaryBot()
     await bot.run()
 

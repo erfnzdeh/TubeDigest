@@ -1,0 +1,48 @@
+name: tubedigest
+services:
+- name: tubedigest
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: dubai2026/TubeDigest
+  build_command: pip install -r requirements.txt
+  run_command: python youtube_summary_bot.py
+  envs:
+  - key: YOUTUBE_API_KEY
+    type: SECRET
+    value: ${YOUTUBE_API_KEY}
+  - key: TELEGRAM_BOT_TOKEN
+    type: SECRET
+    value: ${TELEGRAM_BOT_TOKEN}
+  - key: TELEGRAM_CHANNEL_ID
+    type: SECRET
+    value: ${TELEGRAM_CHANNEL_ID}
+  - key: OPENAI_API_KEY
+    type: SECRET
+    value: ${OPENAI_API_KEY}
+  - key: YOUTUBE_CHANNEL_IDS
+    type: SECRET
+    value: ${YOUTUBE_CHANNEL_IDS}
+  - key: PORT
+    value: "8080"
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  
+runtime: python
+env: flex
+
+runtime_config:
+  python_version: 3.11
+
+manual_scaling:
+  instances: 1
+
+health_check:
+  enable_health_check: true
+  check_interval_sec: 10
+  timeout_sec: 5
+  unhealthy_threshold: 3
+  healthy_threshold: 2
+  restart_threshold: 300
+  path: "/" 
