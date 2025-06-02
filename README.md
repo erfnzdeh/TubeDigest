@@ -76,4 +76,41 @@ Feel free to submit issues and enhancement requests!
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Proxy Support
+
+The bot now includes automatic proxy rotation for YouTube transcript API calls to help avoid rate limiting and potential IP blocks.
+
+### How it works:
+
+1. **Automatic Proxy Fetching**: The bot automatically fetches fresh proxy lists from the Geonode API every hour
+2. **Quality Filtering**: Proxies are filtered based on uptime (>70%), speed, and anonymity level
+3. **Smart Rotation**: High-quality proxies are preferred with weighted random selection
+4. **Fallback System**: Working proxies are saved locally as fallback in case the API is unavailable
+5. **Retry Logic**: If a transcript fetch fails with a proxy, the bot will retry with different proxies
+
+### Testing the Proxy System:
+
+Run the test script to verify proxy functionality:
+
+```bash
+python test_proxy.py
+```
+
+This will:
+- Fetch proxies from the Geonode API
+- Test proxy filtering and quality assessment
+- Test actual proxy connections
+- Demonstrate proxy rotation
+- Test the YouTube transcript API with proxies
+
+### Configuration:
+
+No additional configuration is needed. The proxy system works automatically and falls back to direct connections if no proxies are available.
+
+The proxy manager:
+- Updates proxy lists every hour
+- Stores working proxies in `data/fallback_proxies.json`
+- Prefers proxies with high uptime and good anonymity
+- Uses the format expected by `YouTubeTranscriptApi.get_transcript(video_id, proxies={"https": "https://ip:port"})` 

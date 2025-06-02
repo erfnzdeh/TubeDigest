@@ -3,8 +3,10 @@ import time
 import logging
 import asyncio
 import json
+import requests
+import random
 from datetime import datetime, timedelta, UTC
-from typing import List, Dict
+from typing import List, Dict, Optional
 import backoff
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
@@ -28,6 +30,230 @@ load_dotenv()
 
 # Define data directory
 DATA_DIR = 'data'
+
+class ProxyManager:
+    """Manages proxy list fetching and rotation for YouTube API calls."""
+    
+    def __init__(self):
+        self.proxies = []
+        self.last_updated = None
+        self.update_interval = 3600  # Update proxies every hour
+        self.api_url = "https://proxylist.geonode.com/api/proxy-list"
+        self.session = requests.Session()
+        # Set a reasonable user agent to avoid being blocked
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        
+    def fetch_proxies_from_geonode(self) -> List[Dict]:
+        """Fetch proxy list from geonode.com API."""
+        try:
+            logger.info("Fetching proxy list from geonode.com API...")
+            
+            # API parameters
+            params = {
+                'limit': 500,
+                'page': 1,
+                'sort_by': 'lastChecked',
+                'sort_type': 'desc',
+                'protocols': 'http,https'  # Only get HTTP/HTTPS proxies
+            }
+            
+            # Make request to geonode API
+            response = self.session.get(self.api_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            # Parse JSON response
+            data = response.json()
+            
+            if 'data' not in data:
+                logger.error("Invalid API response format")
+                return []
+            
+            proxies = []
+            for proxy_data in data['data']:
+                # Extract proxy information
+                ip = proxy_data.get('ip')
+                port = proxy_data.get('port')
+                protocols = proxy_data.get('protocols', [])
+                
+                if ip and port and protocols:
+                    # Add proxy for each supported protocol
+                    for protocol in protocols:
+                        if protocol.lower() in ['http', 'https']:
+                            proxies.append({
+                                'ip': ip,
+                                'port': int(port),
+                                'protocol': protocol.lower(),
+                                'country': proxy_data.get('country', ''),
+                                'speed': proxy_data.get('speed', 0),
+                                'uptime': proxy_data.get('upTime', 0),
+                                'anonymity': proxy_data.get('anonymityLevel', ''),
+                                'last_checked': proxy_data.get('lastChecked', '')
+                            })
+            
+            logger.info(f"Successfully fetched {len(proxies)} proxies from geonode.com API")
+            return proxies
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error fetching proxies from geonode.com API: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error from geonode.com API: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching proxies from geonode.com API: {e}")
+            return []
+    
+    def _is_valid_ip(self, ip: str) -> bool:
+        """Validate IP address format."""
+        try:
+            parts = ip.split('.')
+            return len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts)
+        except (ValueError, AttributeError):
+            return False
+    
+    def _is_valid_port(self, port: str) -> bool:
+        """Validate port number."""
+        try:
+            port_num = int(port)
+            return 1 <= port_num <= 65535
+        except (ValueError, TypeError):
+            return False
+    
+    def load_fallback_proxies(self) -> List[Dict]:
+        """Load fallback proxies from file if geonode.com is unavailable."""
+        try:
+            filename = os.path.join(DATA_DIR, 'fallback_proxies.json')
+            if os.path.exists(filename):
+                with open(filename, 'r') as f:
+                    data = json.load(f)
+                    return data.get('proxies', [])
+        except Exception as e:
+            logger.error(f"Error loading fallback proxies: {e}")
+        return []
+    
+    def save_fallback_proxies(self, proxies: List[Dict]):
+        """Save working proxies as fallback."""
+        try:
+            filename = os.path.join(DATA_DIR, 'fallback_proxies.json')
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(filename, 'w') as f:
+                json.dump({'proxies': proxies, 'updated': datetime.now().isoformat()}, f)
+        except Exception as e:
+            logger.error(f"Error saving fallback proxies: {e}")
+    
+    def test_proxy(self, proxy: Dict) -> bool:
+        """Test if a proxy is working."""
+        try:
+            proxy_url = f"{proxy['protocol']}://{proxy['ip']}:{proxy['port']}"
+            test_proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            
+            # Test with a simple request
+            response = requests.get(
+                'http://httpbin.org/ip',
+                proxies=test_proxies,
+                timeout=10
+            )
+            return response.status_code == 200
+        except Exception:
+            return False
+    
+    def filter_proxies(self, proxies: List[Dict]) -> List[Dict]:
+        """Filter proxies based on quality criteria."""
+        if not proxies:
+            return []
+        
+        filtered = []
+        for proxy in proxies:
+            # Filter by uptime (prefer proxies with >70% uptime)
+            uptime = proxy.get('uptime', 0)
+            speed = proxy.get('speed', 0)
+            
+            # Basic quality filters
+            if (uptime >= 70 and  # At least 70% uptime
+                speed > 0 and     # Has speed data
+                proxy.get('anonymity', '').lower() in ['anonymous', 'elite']):  # Good anonymity
+                filtered.append(proxy)
+        
+        # If we filtered out too many, fall back to basic filtering
+        if len(filtered) < 10 and len(proxies) > 10:
+            filtered = [p for p in proxies if p.get('uptime', 0) >= 50]
+        
+        # Sort by uptime and speed (higher is better)
+        filtered.sort(key=lambda x: (x.get('uptime', 0), x.get('speed', 0)), reverse=True)
+        
+        return filtered
+    
+    def update_proxies(self):
+        """Update the proxy list."""
+        if (self.last_updated is None or 
+            time.time() - self.last_updated > self.update_interval):
+            
+            logger.info("Updating proxy list...")
+            new_proxies = self.fetch_proxies_from_geonode()
+            
+            if new_proxies:
+                # Filter proxies for better quality
+                filtered_proxies = self.filter_proxies(new_proxies)
+                
+                if filtered_proxies:
+                    logger.info(f"Filtered {len(new_proxies)} proxies to {len(filtered_proxies)} high-quality proxies")
+                    self.proxies = filtered_proxies
+                else:
+                    logger.info(f"No high-quality proxies found, using all {len(new_proxies)} proxies")
+                    self.proxies = new_proxies
+                
+                # Test a sample of proxies to ensure they work
+                working_proxies = []
+                sample_size = min(10, len(self.proxies))  # Test up to 10 proxies
+                sample_proxies = random.sample(self.proxies, sample_size)
+                
+                for proxy in sample_proxies:
+                    if self.test_proxy(proxy):
+                        working_proxies.append(proxy)
+                
+                if working_proxies:
+                    self.save_fallback_proxies(working_proxies)
+                    logger.info(f"Updated proxy list with {len(self.proxies)} proxies ({len(working_proxies)} tested working)")
+                else:
+                    logger.warning("No working proxies found in sample, but keeping all proxies")
+                    
+            else:
+                logger.warning("Failed to fetch new proxies, using fallback proxies")
+                self.proxies = self.load_fallback_proxies()
+            
+            self.last_updated = time.time()
+    
+    def get_random_proxy(self) -> Optional[Dict]:
+        """Get a random proxy from the list."""
+        self.update_proxies()
+        
+        if not self.proxies:
+            logger.warning("No proxies available")
+            return None
+        
+        # Prefer higher quality proxies (first in sorted list)
+        # Use weighted random selection - higher chance for better proxies
+        total_proxies = len(self.proxies)
+        if total_proxies > 10:
+            # 70% chance to pick from top 30% of proxies
+            if random.random() < 0.7:
+                proxy = random.choice(self.proxies[:max(3, total_proxies//3)])
+            else:
+                proxy = random.choice(self.proxies)
+        else:
+            proxy = random.choice(self.proxies)
+        
+        proxy_url = f"{proxy['protocol']}://{proxy['ip']}:{proxy['port']}"
+        
+        return {
+            'http': proxy_url,
+            'https': proxy_url
+        }
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for health checks."""
@@ -59,6 +285,9 @@ class YouTubeSummaryBot:
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.telegram_bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Initialize proxy manager
+        self.proxy_manager = ProxyManager()
         
         # Load channel mappings
         self.channel_mappings = self.load_channel_mappings()
@@ -149,13 +378,32 @@ class YouTubeSummaryBot:
             return False
 
     def get_video_transcript(self, video_id: str) -> str:
-        """Fetch transcript for a YouTube video."""
-        try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            return ' '.join([entry['text'] for entry in transcript_list])
-        except Exception as e:
-            logger.error(f"Error fetching transcript: {e}")
-            return ""
+        """Fetch transcript for a YouTube video using proxy rotation."""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                # Get a random proxy
+                proxy = self.proxy_manager.get_random_proxy()
+                
+                if proxy:
+                    logger.info(f"Attempting to fetch transcript for {video_id} using proxy (attempt {attempt + 1})")
+                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxy)
+                else:
+                    logger.info(f"Attempting to fetch transcript for {video_id} without proxy (attempt {attempt + 1})")
+                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+                
+                return ' '.join([entry['text'] for entry in transcript_list])
+                
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed for video {video_id}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Wait before retry
+                else:
+                    logger.error(f"All attempts failed for video {video_id}")
+                    return ""
+        
+        return ""
 
     def generate_summary(self, transcript: str, prompt: Dict) -> str:
         """Generate a summary using OpenAI's API."""
