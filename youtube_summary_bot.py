@@ -36,6 +36,7 @@ class ProxyManager:
     
     def __init__(self):
         self.proxies = []
+        self.current_proxy_index = 0  # Track current position in proxy list
         self.last_updated = None
         self.update_interval = 3600  # Update proxies every hour
         self.api_url = "https://proxylist.geonode.com/api/proxy-list"
@@ -45,55 +46,75 @@ class ProxyManager:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         
+        # Clean up any invalid fallback proxies on startup
+        self.clean_fallback_proxies()
+        
     def fetch_proxies_from_geonode(self) -> List[Dict]:
         """Fetch proxy list from geonode.com API."""
         try:
             logger.info("Fetching proxy list from geonode.com API...")
             
-            # API parameters
-            params = {
-                'limit': 500,
-                'page': 1,
-                'sort_by': 'lastChecked',
-                'sort_type': 'desc',
-                'protocols': 'http,https'  # Only get HTTP/HTTPS proxies
-            }
+            all_proxies = []
+            max_proxies_needed = 25
+            page = 1
             
-            # Make request to geonode API
-            response = self.session.get(self.api_url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            # Parse JSON response
-            data = response.json()
-            
-            if 'data' not in data:
-                logger.error("Invalid API response format")
-                return []
-            
-            proxies = []
-            for proxy_data in data['data']:
-                # Extract proxy information
-                ip = proxy_data.get('ip')
-                port = proxy_data.get('port')
-                protocols = proxy_data.get('protocols', [])
+            # Fetch multiple pages to get enough proxies
+            while len(all_proxies) < max_proxies_needed and page <= 3:  # Max 3 pages
+                # API parameters
+                params = {
+                    'limit': 500,
+                    'page': page,
+                    'sort_by': 'lastChecked',
+                    'sort_type': 'desc',
+                    'protocols': 'http,https'  # Only get HTTP/HTTPS proxies
+                }
                 
-                if ip and port and protocols:
-                    # Add proxy for each supported protocol
-                    for protocol in protocols:
-                        if protocol.lower() in ['http', 'https']:
-                            proxies.append({
-                                'ip': ip,
-                                'port': int(port),
-                                'protocol': protocol.lower(),
-                                'country': proxy_data.get('country', ''),
-                                'speed': proxy_data.get('speed', 0),
-                                'uptime': proxy_data.get('upTime', 0),
-                                'anonymity': proxy_data.get('anonymityLevel', ''),
-                                'last_checked': proxy_data.get('lastChecked', '')
-                            })
+                # Make request to geonode API
+                response = self.session.get(self.api_url, params=params, timeout=30)
+                response.raise_for_status()
+                
+                # Parse JSON response
+                data = response.json()
+                
+                if 'data' not in data or not data['data']:
+                    logger.info(f"No more proxies available on page {page}")
+                    break
+                
+                page_proxies = []
+                for proxy_data in data['data']:
+                    # Extract proxy information
+                    ip = proxy_data.get('ip')
+                    port = proxy_data.get('port')
+                    protocols = proxy_data.get('protocols', [])
+                    
+                    if ip and port and protocols:
+                        # Add proxy for each supported protocol
+                        for protocol in protocols:
+                            if protocol.lower() in ['http', 'https']:
+                                page_proxies.append({
+                                    'ip': ip,
+                                    'port': int(port),
+                                    'protocol': protocol.lower(),
+                                    'country': proxy_data.get('country', ''),
+                                    'speed': proxy_data.get('speed', 0),
+                                    'uptime': proxy_data.get('upTime', 0),
+                                    'anonymity': proxy_data.get('anonymityLevel', ''),
+                                    'last_checked': proxy_data.get('lastChecked', '')
+                                })
+                
+                all_proxies.extend(page_proxies)
+                logger.info(f"Page {page}: Got {len(page_proxies)} proxies (total: {len(all_proxies)})")
+                
+                # If we have enough, stop
+                if len(all_proxies) >= max_proxies_needed:
+                    break
+                    
+                page += 1
             
-            logger.info(f"Successfully fetched {len(proxies)} proxies from geonode.com API")
-            return proxies
+            # Take only what we need
+            final_proxies = all_proxies[:max_proxies_needed]
+            logger.info(f"Successfully fetched {len(final_proxies)} proxies from geonode.com API")
+            return final_proxies
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error fetching proxies from geonode.com API: {e}")
@@ -109,7 +130,29 @@ class ProxyManager:
         """Validate IP address format."""
         try:
             parts = ip.split('.')
-            return len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts)
+            if len(parts) != 4:
+                return False
+            
+            # Check each octet
+            for part in parts:
+                num = int(part)
+                if not (0 <= num <= 255):
+                    return False
+            
+            # Check if it's a public IP (not private/local)
+            first_octet = int(parts[0])
+            second_octet = int(parts[1])
+            
+            # Filter out private IP ranges
+            if (first_octet == 10 or  # 10.0.0.0/8
+                (first_octet == 172 and 16 <= second_octet <= 31) or  # 172.16.0.0/12
+                (first_octet == 192 and second_octet == 168) or  # 192.168.0.0/16
+                first_octet == 127 or  # 127.0.0.0/8 (localhost)
+                first_octet == 0 or  # 0.0.0.0/8
+                first_octet >= 224):  # Multicast and reserved ranges
+                return False
+                
+            return True
         except (ValueError, AttributeError):
             return False
     
@@ -128,7 +171,26 @@ class ProxyManager:
             if os.path.exists(filename):
                 with open(filename, 'r') as f:
                     data = json.load(f)
-                    return data.get('proxies', [])
+                    proxies = data.get('proxies', [])
+                    
+                    # Filter out invalid proxies (like test data with private IPs)
+                    valid_proxies = []
+                    for proxy in proxies:
+                        if (self._is_valid_ip(proxy.get('ip', '')) and 
+                            self._is_valid_port(str(proxy.get('port', '')))):
+                            valid_proxies.append(proxy)
+                    
+                    if len(valid_proxies) != len(proxies):
+                        logger.info(f"Filtered fallback proxies from {len(proxies)} to {len(valid_proxies)} valid proxies")
+                        # Save the cleaned list back
+                        if valid_proxies:
+                            self.save_fallback_proxies(valid_proxies)
+                        else:
+                            # If no valid proxies, remove the file
+                            os.remove(filename)
+                            logger.info("Removed invalid fallback proxy file")
+                    
+                    return valid_proxies
         except Exception as e:
             logger.error(f"Error loading fallback proxies: {e}")
         return []
@@ -163,54 +225,34 @@ class ProxyManager:
             return False
     
     def filter_proxies(self, proxies: List[Dict]) -> List[Dict]:
-        """Filter proxies based on quality criteria."""
+        """Keep proxies in original order (sorted by API response)."""
         if not proxies:
             return []
         
-        filtered = []
-        for proxy in proxies:
-            # Filter by uptime (prefer proxies with >70% uptime)
-            uptime = proxy.get('uptime', 0)
-            speed = proxy.get('speed', 0)
-            
-            # Basic quality filters
-            if (uptime >= 70 and  # At least 70% uptime
-                speed > 0 and     # Has speed data
-                proxy.get('anonymity', '').lower() in ['anonymous', 'elite']):  # Good anonymity
-                filtered.append(proxy)
-        
-        # If we filtered out too many, fall back to basic filtering
-        if len(filtered) < 10 and len(proxies) > 10:
-            filtered = [p for p in proxies if p.get('uptime', 0) >= 50]
-        
-        # Sort by uptime and speed (higher is better)
-        filtered.sort(key=lambda x: (x.get('uptime', 0), x.get('speed', 0)), reverse=True)
-        
-        return filtered
+        # Keep original order - API already sorts by lastChecked/ping
+        logger.info(f"Keeping {len(proxies)} proxies in original order for sequential rotation")
+        return proxies
     
     def update_proxies(self):
         """Update the proxy list."""
+        current_time = time.time()
+        
         if (self.last_updated is None or 
-            time.time() - self.last_updated > self.update_interval):
+            current_time - self.last_updated > self.update_interval):
             
             logger.info("Updating proxy list...")
             new_proxies = self.fetch_proxies_from_geonode()
             
             if new_proxies:
-                # Filter proxies for better quality
-                filtered_proxies = self.filter_proxies(new_proxies)
+                # Keep proxies in original order
+                ordered_proxies = self.filter_proxies(new_proxies)
+                self.proxies = ordered_proxies
+                self.current_proxy_index = 0  # Reset to start of new list
                 
-                if filtered_proxies:
-                    logger.info(f"Filtered {len(new_proxies)} proxies to {len(filtered_proxies)} high-quality proxies")
-                    self.proxies = filtered_proxies
-                else:
-                    logger.info(f"No high-quality proxies found, using all {len(new_proxies)} proxies")
-                    self.proxies = new_proxies
-                
-                # Test a sample of proxies to ensure they work
+                # Test a few proxies to save some working ones as fallback
                 working_proxies = []
-                sample_size = min(10, len(self.proxies))  # Test up to 10 proxies
-                sample_proxies = random.sample(self.proxies, sample_size)
+                sample_size = min(5, len(self.proxies))  # Test 5 proxies max
+                sample_proxies = self.proxies[:sample_size]  # Take first 5 instead of random
                 
                 for proxy in sample_proxies:
                     if self.test_proxy(proxy):
@@ -220,40 +262,56 @@ class ProxyManager:
                     self.save_fallback_proxies(working_proxies)
                     logger.info(f"Updated proxy list with {len(self.proxies)} proxies ({len(working_proxies)} tested working)")
                 else:
-                    logger.warning("No working proxies found in sample, but keeping all proxies")
+                    logger.info(f"Updated proxy list with {len(self.proxies)} proxies (none tested yet)")
+                    
+                self.last_updated = current_time
                     
             else:
                 logger.warning("Failed to fetch new proxies, using fallback proxies")
-                self.proxies = self.load_fallback_proxies()
-            
-            self.last_updated = time.time()
+                fallback_proxies = self.load_fallback_proxies()
+                if fallback_proxies:
+                    # Keep fallback proxies in order too
+                    self.proxies = self.filter_proxies(fallback_proxies)
+                    self.current_proxy_index = 0  # Reset index
+                    logger.info(f"Loaded {len(self.proxies)} fallback proxies in order")
+                else:
+                    logger.warning("No fallback proxies available")
+                
+                # Set last_updated to avoid immediate retry on network issues
+                # but with shorter interval (15 minutes instead of 1 hour)
+                self.last_updated = current_time - self.update_interval + 900
     
-    def get_random_proxy(self) -> Optional[Dict]:
-        """Get a random proxy from the list."""
+    def get_next_proxy(self) -> Optional[Dict]:
+        """Get the next proxy in sequence from the list."""
         self.update_proxies()
         
         if not self.proxies:
             logger.warning("No proxies available")
             return None
         
-        # Prefer higher quality proxies (first in sorted list)
-        # Use weighted random selection - higher chance for better proxies
-        total_proxies = len(self.proxies)
-        if total_proxies > 10:
-            # 70% chance to pick from top 30% of proxies
-            if random.random() < 0.7:
-                proxy = random.choice(self.proxies[:max(3, total_proxies//3)])
-            else:
-                proxy = random.choice(self.proxies)
-        else:
-            proxy = random.choice(self.proxies)
-        
+        # Get next proxy in sequence
+        proxy = self.proxies[self.current_proxy_index]
         proxy_url = f"{proxy['protocol']}://{proxy['ip']}:{proxy['port']}"
+        
+        # Move to next proxy for next call
+        self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
         
         return {
             'http': proxy_url,
             'https': proxy_url
         }
+
+    def clean_fallback_proxies(self):
+        """Clean up invalid fallback proxies."""
+        try:
+            filename = os.path.join(DATA_DIR, 'fallback_proxies.json')
+            if os.path.exists(filename):
+                valid_proxies = self.load_fallback_proxies()
+                if not valid_proxies:
+                    os.remove(filename)
+                    logger.info("Removed empty fallback proxy file")
+        except Exception as e:
+            logger.error(f"Error cleaning fallback proxies: {e}")
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for health checks."""
@@ -378,29 +436,46 @@ class YouTubeSummaryBot:
             return False
 
     def get_video_transcript(self, video_id: str) -> str:
-        """Fetch transcript for a YouTube video using proxy rotation."""
-        max_retries = 3
+        """Fetch transcript for a YouTube video using sequential proxy rotation."""
+        max_retries = 5  # Increased retries since we have more proxies
+        use_proxies = os.getenv('USE_PROXIES', 'true').lower() == 'true'
+        
+        # Get available proxies for sequential rotation
+        if use_proxies:
+            self.proxy_manager.update_proxies()
+            available_proxies = self.proxy_manager.proxies.copy()  # Keep original order
+        else:
+            available_proxies = []
         
         for attempt in range(max_retries):
             try:
-                # Get a random proxy
-                proxy = self.proxy_manager.get_random_proxy()
-                
-                if proxy:
-                    logger.info(f"Attempting to fetch transcript for {video_id} using proxy (attempt {attempt + 1})")
+                # Try with proxy for first attempts (if available and enabled)
+                if attempt < max_retries - 1 and use_proxies and available_proxies:
+                    # Get next proxy in sequence
+                    proxy_index = attempt % len(available_proxies)
+                    proxy_data = available_proxies[proxy_index]
+                    
+                    proxy_url = f"{proxy_data['protocol']}://{proxy_data['ip']}:{proxy_data['port']}"
+                    proxy = {
+                        'http': proxy_url,
+                        'https': proxy_url
+                    }
+                    
+                    logger.info(f"Attempting to fetch transcript for {video_id} using proxy {proxy_index + 1}/{len(available_proxies)}: {proxy_data['ip']}:{proxy_data['port']} (attempt {attempt + 1})")
                     transcript_list = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxy)
-                else:
-                    logger.info(f"Attempting to fetch transcript for {video_id} without proxy (attempt {attempt + 1})")
-                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+                    return ' '.join([entry['text'] for entry in transcript_list])
                 
+                # Last attempt or no proxies available - try direct connection
+                logger.info(f"Attempting to fetch transcript for {video_id} without proxy (attempt {attempt + 1})")
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
                 return ' '.join([entry['text'] for entry in transcript_list])
                 
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed for video {video_id}: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(2)  # Wait before retry
+                    time.sleep(1)  # Short wait between retries
                 else:
-                    logger.error(f"All attempts failed for video {video_id}")
+                    logger.error(f"All {max_retries} attempts failed for video {video_id}")
                     return ""
         
         return ""

@@ -84,11 +84,18 @@ The bot now includes automatic proxy rotation for YouTube transcript API calls t
 
 ### How it works:
 
-1. **Automatic Proxy Fetching**: The bot automatically fetches fresh proxy lists from the Geonode API every hour
-2. **Quality Filtering**: Proxies are filtered based on uptime (>70%), speed, and anonymity level
-3. **Smart Rotation**: High-quality proxies are preferred with weighted random selection
-4. **Fallback System**: Working proxies are saved locally as fallback in case the API is unavailable
-5. **Retry Logic**: If a transcript fetch fails with a proxy, the bot will retry with different proxies
+1. **Automatic Proxy Fetching**: The bot automatically fetches 25 fresh proxies from the Geonode API every hour
+2. **Sequential Rotation**: Proxies are used in order based on their API ranking (typically sorted by ping/response time)
+3. **No Quality Filtering**: All fetched proxies are used to maximize availability and rotation
+4. **Automatic Failover**: If a proxy fails, the bot immediately tries the next one in the sequence
+5. **Retry Logic**: Uses up to 5 different proxies before falling back to direct connection
+
+### Proxy Rotation Logic:
+
+- **Order**: Proxies are used in the order received from the API (pre-sorted by ping/response time)
+- **Iteration**: Sequential iteration through the proxy list (proxy 1, 2, 3... 25, then back to 1)
+- **Retry Strategy**: Each failed request tries the next proxy in sequence
+- **Fallback**: Last attempt always uses direct connection if all proxies fail
 
 ### Testing the Proxy System:
 
@@ -113,4 +120,28 @@ The proxy manager:
 - Updates proxy lists every hour
 - Stores working proxies in `data/fallback_proxies.json`
 - Prefers proxies with high uptime and good anonymity
-- Uses the format expected by `YouTubeTranscriptApi.get_transcript(video_id, proxies={"https": "https://ip:port"})` 
+- Uses the format expected by `YouTubeTranscriptApi.get_transcript(video_id, proxies={"https": "https://ip:port"})`
+
+### Troubleshooting Proxy Issues:
+
+If you encounter proxy-related issues:
+
+1. **Disable proxies entirely** (if needed):
+   ```bash
+   # Add to your .env file
+   USE_PROXIES=false
+   ```
+
+2. **Clean up bad fallback proxies**:
+   ```bash
+   python -c "import os; f='data/fallback_proxies.json'; os.remove(f) if os.path.exists(f) else None; print('Cleaned')"
+   ```
+
+3. **Test proxy connectivity**:
+   ```bash
+   python test_proxy_offline.py  # Test proxy functionality without external calls
+   ```
+
+4. **Network connectivity issues**: If the Geonode API is blocked by your network/firewall, the bot will automatically fall back to direct connections after a few minutes.
+
+The proxy system is designed to be resilient - it will automatically disable problematic proxies and fall back to direct connections when needed. 
