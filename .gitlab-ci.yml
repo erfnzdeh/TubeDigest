@@ -1,0 +1,26 @@
+stages:
+  - deploy
+
+deploy:
+  stage: deploy
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache openssh
+    - mkdir -p ~/.ssh
+    - echo "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+  script:
+    - |
+      ssh -i ~/.ssh/id_ed25519 $VPS_USER@$VPS_HOST "
+        cd /tubedigest &&
+        git pull &&
+        docker build -t tubedigest . &&
+        docker stop tubedigest || true &&
+        docker rm tubedigest || true &&
+        docker run -d --name tubedigest -p 80:80 tubedigest
+      "
+  only:
+    - main 
