@@ -1,3 +1,4 @@
+
 import os
 import time
 import logging
@@ -11,6 +12,7 @@ import schedule
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import WebshareProxyConfig
 from telegram import Bot
 from openai import OpenAI
 
@@ -33,6 +35,14 @@ class YouTubeSummaryBot:
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.telegram_bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Initialize YouTube Transcript API with proxy
+        self.ytt_api = YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=os.getenv('WEBSHARE_PROXY_USERNAME'),
+                proxy_password=os.getenv('WEBSHARE_PROXY_PASSWORD')
+            )
+        )
         
         # Load channel mappings
         self.channel_mappings = self.load_channel_mappings()
@@ -123,9 +133,9 @@ class YouTubeSummaryBot:
             return False
 
     def get_video_transcript(self, video_id: str) -> str:
-        """Fetch transcript for a YouTube video."""
+        """Fetch transcript for a YouTube video using proxy."""
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            transcript_list = self.ytt_api.get_transcript(video_id)
             return ' '.join([entry['text'] for entry in transcript_list])
         except Exception as e:
             logger.error(f"Error fetching transcript: {e}")
