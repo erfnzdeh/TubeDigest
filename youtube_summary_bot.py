@@ -50,20 +50,20 @@ class YouTubeSummaryBot:
     def load_channel_mappings(self) -> List[Dict]:
         """Load channel mappings from JSON file."""
         try:
-            with open(os.path.join(DATA_DIR, 'channel_mappings.json'), 'r') as f:
+            with open(os.path.join(DATA_DIR, 'data.json'), 'r') as f:
                 config = json.load(f)
                 return config['channel_mappings']
         except FileNotFoundError:
-            logger.error("channel_mappings.json file not found")
+            logger.error("data.json file not found")
             return []
         except json.JSONDecodeError:
-            logger.error("Invalid JSON format in channel_mappings.json")
+            logger.error("Invalid JSON format in data.json")
             return []
 
     def save_channel_mappings(self):
         """Save channel mappings to JSON file."""
         try:
-            with open(os.path.join(DATA_DIR, 'channel_mappings.json'), 'w') as f:
+            with open(os.path.join(DATA_DIR, 'data.json'), 'w') as f:
                 json.dump({'channel_mappings': self.channel_mappings}, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving channel mappings: {e}")
