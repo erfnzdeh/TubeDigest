@@ -372,22 +372,41 @@ class YouTubeSummaryBot:
                 except Exception as e:
                     logger.error(f"Error fetching video details for {video_id}: {e}")
 
+    async def run_check_new_videos(self):
+        """Run the check for new videos loop."""
+        while True:
+            try:
+                await self.check_and_add_new_videos()
+            except Exception as e:
+                logger.error(f"Error checking for new videos: {e}")
+            await asyncio.sleep(1800)  # Run every 30 minutes
+
+    async def run_process_videos(self):
+        """Run the video processing loop."""
+        while True:
+            try:
+                await self.process_pending_videos()
+            except Exception as e:
+                logger.error(f"Error processing videos: {e}")
+            await asyncio.sleep(300)  # Run every 5 minutes
+
     async def run(self):
         """Run the bot instance."""
         logger.info("Starting YouTube Summary Bot...")
         
-        while True:
-            try:
-                # Update the queue of new videos
-                await self.check_and_add_new_videos()
-                await asyncio.sleep(1800)  # Check for new videos every 30 minutes
-                
-                # Process any pending videos
-                await self.process_pending_videos()
-                await asyncio.sleep(1800)  # Process queue every 30 minutes
-            except Exception as e:
-                logger.error(f"Error in main loop: {e}")
-                await asyncio.sleep(60)  # Wait a minute before retrying if there's an error
+        # Create tasks for both operations
+        check_task = asyncio.create_task(self.run_check_new_videos())
+        process_task = asyncio.create_task(self.run_process_videos())
+        
+        try:
+            # Run both tasks concurrently
+            await asyncio.gather(check_task, process_task)
+        except Exception as e:
+            logger.error(f"Critical error in main loop: {e}")
+            # Cancel tasks if there's a critical error
+            check_task.cancel()
+            process_task.cancel()
+            raise
 
 async def main():
     """Main function to run the bot."""
