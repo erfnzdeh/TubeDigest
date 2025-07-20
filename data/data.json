@@ -4,8 +4,15 @@
       "channel_name": "Forbes",
       "youtube_channel_id": "UCmh7afBz-uWwOSSNTqUBAhg",
       "telegram_channel_id": "-1002537826233",
-      "processed_videos": [],
-      "unprocessed_videos": [],
+      "processed_videos": [
+        "kt_Fp5vWML4",
+        "2aucCChOs80",
+        "AVm24_Upz4k"
+      ],
+      "unprocessed_videos": [
+        "cUZ83mZOgxE",
+        "aORBgcXFD9k"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
@@ -16,7 +23,13 @@
       "youtube_channel_id": "UC-uhvujip5deVcEtLxnW8qg",
       "telegram_channel_id": "-1002537826233",
       "processed_videos": [],
-      "unprocessed_videos": [],
+      "unprocessed_videos": [
+        "dQ6uJWS8Ya4",
+        "j_O8Ot9TuZA",
+        "SnidqFzWEag",
+        "IsOkq-BeUVM",
+        "mbFE60Z-_VQ"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
@@ -27,7 +40,13 @@
       "youtube_channel_id": "UCK7tptUDHh-RYDsdxO1-5QQ",
       "telegram_channel_id": "-1002537826233",
       "processed_videos": [],
-      "unprocessed_videos": [],
+      "unprocessed_videos": [
+        "MCBdcNA_FsI",
+        "trHWYxM87SY",
+        "64RlDt9g1a0",
+        "dRlFUWekc0o",
+        "Hrsj09ITeqQ"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
@@ -38,7 +57,13 @@
       "youtube_channel_id": "UC0p5jTq6Xx_DosDFxVXnWaQ",
       "telegram_channel_id": "-1002537826233",
       "processed_videos": [],
-      "unprocessed_videos": [],
+      "unprocessed_videos": [
+        "D7To8wXZLKE",
+        "1HXSAuJ8iWA",
+        "zSSUAcz_W0A",
+        "fg3OdSzlC1o",
+        "slvbbbQJoFk"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
@@ -49,7 +74,13 @@
       "youtube_channel_id": "UCIALMKvObZNtJ6AmdCLP7Lg",
       "telegram_channel_id": "-1002537826233",
       "processed_videos": [],
-      "unprocessed_videos": [],
+      "unprocessed_videos": [
+        "rNG2zRGZGY8",
+        "9tlQtSM69_I",
+        "MilH97IOTRc",
+        "1C8qZmuTxP4",
+        "3Lyx9q_e1PQ"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
@@ -60,7 +91,13 @@
       "youtube_channel_id": "UCsBjURrPoezykLs9EqgamOA",
       "telegram_channel_id": "-1002691726646",
       "processed_videos": [],
-      "unprocessed_videos": [],
+      "unprocessed_videos": [
+        "gA6r7iVzP6M",
+        "2USUfv7klr8",
+        "-_6dHIPVoTM",
+        "qqP1ucSiVkE",
+        "nFoXCLi8FCc"
+      ],
       "prompt": {
         "system": "You are a helpful and professional assistant that turns YouTube video transcripts into engaging Telegram posts.",
         "user": "Using the following transcript, write a compelling Telegram post in Persian. Start with a strong, attention-grabbing title (put a emoji next to the title), followed by a 3-4 paragraph body that summarizes the key points, main ideas, and important takeaways from the video. The tone of the writing should be clear, impactful, and suitable for an audience interested in business and personal/financial growth. Just return a simple text without any markdown or html. Here's the transcript:\n\n{transcript}"
