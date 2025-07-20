@@ -304,7 +304,7 @@ class YouTubeSummaryBot:
                 self.save_channel_mappings()
 
     async def process_pending_videos(self):
-        """Process videos from the unprocessed queue."""
+        """Process videos from the unprocessed queue. Get transcript and generate summary and send telegram message."""
         for mapping in self.channel_mappings:
             youtube_channel_id = mapping['youtube_channel_id']
             telegram_channel_id = mapping['telegram_channel_id']
