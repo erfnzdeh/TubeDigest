@@ -7,6 +7,33 @@ import json
 from datetime import datetime, timedelta, UTC
 from typing import List, Dict
 import backoff
+import sys
+from logging.handlers import RotatingFileHandler
+
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Format for both file and console
+log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(log_format)
+logger.addHandler(console_handler)
+
+# File handler with rotation (10 MB per file, keep 5 backup files)
+file_handler = RotatingFileHandler(
+    'logs/youtube_summary_bot.log',
+    maxBytes=10*1024*1024,  # 10 MB
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setFormatter(log_format)
+logger.addHandler(file_handler)
 
 import schedule
 from dotenv import load_dotenv
@@ -15,13 +42,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 from telegram import Bot
 from openai import OpenAI
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -380,6 +400,9 @@ class YouTubeSummaryBot:
                 await self.check_and_add_new_videos()
             except Exception as e:
                 logger.error(f"❌ Check loop failed: {str(e)}")
+            
+            next_check = (datetime.now() + timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"💤 Videos check sleeping until {next_check}")
             await asyncio.sleep(1800)  # Run every 30 minutes
 
     async def run_process_videos(self):
@@ -389,6 +412,9 @@ class YouTubeSummaryBot:
                 await self.process_pending_videos()
             except Exception as e:
                 logger.error(f"❌ Process loop failed: {str(e)}")
+            
+            next_check = (datetime.now() + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"💤 Processing sleeping until {next_check}")
             await asyncio.sleep(300)  # Run every 5 minutes
 
     async def run(self):
