@@ -304,16 +304,16 @@ class YouTubeSummaryBot:
                 self.save_channel_mappings()
 
     async def process_pending_videos(self):
-        """Process one video from the unprocessed queue (latest one added)."""
-        latest_video = None
-        latest_mapping = None
-        latest_add_time = None
+        """Process one video from the unprocessed queue (earliest one added)."""
+        earliest_video = None
+        earliest_mapping = None
+        earliest_add_time = None
 
-        # Find the latest unprocessed video across all channels
+        # Find the earliest unprocessed video across all channels
         for mapping in self.channel_mappings:
             if mapping['unprocessed_videos']:
-                # Get the last video in the unprocessed queue
-                video_id = mapping['unprocessed_videos'][-1]
+                # Get the first video in the unprocessed queue
+                video_id = mapping['unprocessed_videos'][0]
                 
                 try:
                     # Get video details to check its publish time
@@ -327,22 +327,22 @@ class YouTubeSummaryBot:
                         publish_time = video['snippet']['publishedAt']
                         publish_datetime = datetime.strptime(publish_time, '%Y-%m-%dT%H:%M:%SZ')
                         
-                        # Update latest video if this one is more recent
-                        if latest_add_time is None or publish_datetime > latest_add_time:
-                            latest_video = video
-                            latest_mapping = mapping
-                            latest_add_time = publish_datetime
+                        # Update earliest video if this one is older or if we haven't found one yet
+                        if earliest_add_time is None or publish_datetime < earliest_add_time:
+                            earliest_video = video
+                            earliest_mapping = mapping
+                            earliest_add_time = publish_datetime
                 except Exception as e:
                     logger.error(f"Error fetching video details for {video_id}: {e}")
                     continue
 
         # If we found a video to process
-        if latest_video and latest_mapping:
-            video_id = latest_video['id']
-            telegram_channel_id = latest_mapping['telegram_channel_id']
-            prompt = latest_mapping['prompt']
+        if earliest_video and earliest_mapping:
+            video_id = earliest_video['id']
+            telegram_channel_id = earliest_mapping['telegram_channel_id']
+            prompt = earliest_mapping['prompt']
             
-            logger.info(f"Processing latest video from queue: {latest_video['snippet']['title']}")
+            logger.info(f"Processing earliest video from queue: {earliest_video['snippet']['title']}")
             
             # Get transcript and generate summary
             transcript = self.get_video_transcript(video_id)
@@ -352,7 +352,7 @@ class YouTubeSummaryBot:
                     video_url = f"https://www.youtube.com/watch?v={video_id}"
                     
                     # Get the highest quality thumbnail available
-                    thumbnails = latest_video['snippet']['thumbnails']
+                    thumbnails = earliest_video['snippet']['thumbnails']
                     # YouTube provides different sizes: default, medium, high, standard, maxres
                     # Try to get the highest quality available
                     if 'maxres' in thumbnails:
@@ -368,7 +368,7 @@ class YouTubeSummaryBot:
                     
                     # Send to Telegram
                     await self.send_telegram_message(
-                        latest_video['snippet']['title'], 
+                        earliest_video['snippet']['title'], 
                         summary, 
                         video_url, 
                         thumbnail_url,
@@ -376,8 +376,8 @@ class YouTubeSummaryBot:
                     )
                     
                     # Move from unprocessed to processed
-                    latest_mapping['unprocessed_videos'].remove(video_id)
-                    latest_mapping['processed_videos'].append(video_id)
+                    earliest_mapping['unprocessed_videos'].remove(video_id)
+                    earliest_mapping['processed_videos'].append(video_id)
                     self.save_channel_mappings()
                 except Exception as e:
                     logger.error(f"Failed to process video {video_id}: {e}")
