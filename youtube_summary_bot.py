@@ -49,6 +49,10 @@ load_dotenv()
 # Define data directory
 DATA_DIR = 'data'
 
+# Define sleep intervals (in seconds) with defaults
+CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL_SECONDS', 1800))  # Default: 30 minutes
+PROCESS_INTERVAL = int(os.getenv('PROCESS_INTERVAL_SECONDS', 300))  # Default: 5 minutes
+
 class YouTubeSummaryBot:
     def __init__(self):
         # Initialize API clients
@@ -66,6 +70,10 @@ class YouTubeSummaryBot:
         
         # Load channel mappings
         self.channel_mappings = self.load_channel_mappings()
+        
+        # Log configured intervals
+        logger.info(f"⚙️ Check interval: {CHECK_INTERVAL//60} minutes")
+        logger.info(f"⚙️ Process interval: {PROCESS_INTERVAL//60} minutes")
 
     def load_channel_mappings(self) -> List[Dict]:
         """Load channel mappings from JSON file."""
@@ -401,9 +409,9 @@ class YouTubeSummaryBot:
             except Exception as e:
                 logger.error(f"❌ Check loop failed: {str(e)}")
             
-            next_check = (datetime.now() + timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+            next_check = (datetime.now() + timedelta(seconds=CHECK_INTERVAL)).strftime('%Y-%m-%d %H:%M:%S')
             logger.info(f"💤 Videos check sleeping until {next_check}")
-            await asyncio.sleep(1800)  # Run every 30 minutes
+            await asyncio.sleep(CHECK_INTERVAL)
 
     async def run_process_videos(self):
         """Run the video processing loop."""
@@ -413,9 +421,9 @@ class YouTubeSummaryBot:
             except Exception as e:
                 logger.error(f"❌ Process loop failed: {str(e)}")
             
-            next_check = (datetime.now() + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            next_check = (datetime.now() + timedelta(seconds=PROCESS_INTERVAL)).strftime('%Y-%m-%d %H:%M:%S')
             logger.info(f"💤 Processing sleeping until {next_check}")
-            await asyncio.sleep(300)  # Run every 5 minutes
+            await asyncio.sleep(PROCESS_INTERVAL)
 
     async def run(self):
         """Run the bot instance."""
