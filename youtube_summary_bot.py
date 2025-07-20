@@ -269,12 +269,10 @@ class YouTubeSummaryBot:
             logger.error(f"Error sending Telegram message for video {video_title}: {str(e)}")
             raise
 
-    async def check_new_videos(self):
-        """Check for new videos from all monitored channels."""
+    async def check_and_add_new_videos(self):
+        """Check for new videos and add them to the unprocessed queue."""
         for mapping in self.channel_mappings:
             youtube_channel_id = mapping['youtube_channel_id']
-            telegram_channel_id = mapping['telegram_channel_id']
-            prompt = mapping['prompt']
             
             logger.info(f"Checking for new videos for channel {youtube_channel_id}...")
             
@@ -299,61 +297,97 @@ class YouTubeSummaryBot:
                     self.save_channel_mappings()
                     continue
                     
-                logger.info(f"Processing new video: {video['snippet']['title']}")
+                logger.info(f"Adding new video to queue: {video['snippet']['title']}")
                 
-                # Add to unprocessed queue first
+                # Add to unprocessed queue
                 mapping['unprocessed_videos'].append(video_id)
                 self.save_channel_mappings()
-                
-                # Get transcript and generate summary
-                transcript = self.get_video_transcript(video_id)
-                if transcript:
-                    try:
-                        summary = self.generate_summary(transcript, prompt)
-                        video_url = f"https://www.youtube.com/watch?v={video_id}"
-                        
-                        # Get the highest quality thumbnail available
-                        thumbnails = video['snippet']['thumbnails']
-                        # YouTube provides different sizes: default, medium, high, standard, maxres
-                        # Try to get the highest quality available
-                        if 'maxres' in thumbnails:
-                            thumbnail_url = thumbnails['maxres']['url']
-                        elif 'standard' in thumbnails:
-                            thumbnail_url = thumbnails['standard']['url']
-                        elif 'high' in thumbnails:
-                            thumbnail_url = thumbnails['high']['url']
-                        elif 'medium' in thumbnails:
-                            thumbnail_url = thumbnails['medium']['url']
-                        else:
-                            thumbnail_url = thumbnails['default']['url']
-                        
-                        # Send to Telegram
-                        await self.send_telegram_message(
-                            video['snippet']['title'], 
-                            summary, 
-                            video_url, 
-                            thumbnail_url,
-                            telegram_channel_id
-                        )
-                        
-                        # Move from unprocessed to processed
-                        mapping['unprocessed_videos'].remove(video_id)
-                        mapping['processed_videos'].append(video_id)
-                        self.save_channel_mappings()
-                    except Exception as e:
-                        logger.error(f"Failed to process video {video_id}: {e}")
-                        # Leave in unprocessed queue so we can try again later
+
+    async def process_pending_videos(self):
+        """Process videos from the unprocessed queue."""
+        for mapping in self.channel_mappings:
+            youtube_channel_id = mapping['youtube_channel_id']
+            telegram_channel_id = mapping['telegram_channel_id']
+            prompt = mapping['prompt']
+            
+            # Create a copy of unprocessed_videos to avoid modifying it while iterating
+            unprocessed_videos = mapping['unprocessed_videos'].copy()
+            
+            for video_id in unprocessed_videos:
+                # Get video details
+                try:
+                    video_response = self.youtube.videos().list(
+                        part='snippet',
+                        id=video_id
+                    ).execute()
                     
-                    # Sleep to avoid rate limits
-                    time.sleep(2)
+                    if not video_response.get('items'):
+                        logger.error(f"Could not fetch video details for {video_id}")
+                        continue
+                        
+                    video = video_response['items'][0]
+                    logger.info(f"Processing video from queue: {video['snippet']['title']}")
+                    
+                    # Get transcript and generate summary
+                    transcript = self.get_video_transcript(video_id)
+                    if transcript:
+                        try:
+                            summary = self.generate_summary(transcript, prompt)
+                            video_url = f"https://www.youtube.com/watch?v={video_id}"
+                            
+                            # Get the highest quality thumbnail available
+                            thumbnails = video['snippet']['thumbnails']
+                            # YouTube provides different sizes: default, medium, high, standard, maxres
+                            # Try to get the highest quality available
+                            if 'maxres' in thumbnails:
+                                thumbnail_url = thumbnails['maxres']['url']
+                            elif 'standard' in thumbnails:
+                                thumbnail_url = thumbnails['standard']['url']
+                            elif 'high' in thumbnails:
+                                thumbnail_url = thumbnails['high']['url']
+                            elif 'medium' in thumbnails:
+                                thumbnail_url = thumbnails['medium']['url']
+                            else:
+                                thumbnail_url = thumbnails['default']['url']
+                            
+                            # Send to Telegram
+                            await self.send_telegram_message(
+                                video['snippet']['title'], 
+                                summary, 
+                                video_url, 
+                                thumbnail_url,
+                                telegram_channel_id
+                            )
+                            
+                            # Move from unprocessed to processed
+                            mapping['unprocessed_videos'].remove(video_id)
+                            mapping['processed_videos'].append(video_id)
+                            self.save_channel_mappings()
+                        except Exception as e:
+                            logger.error(f"Failed to process video {video_id}: {e}")
+                            # Leave in unprocessed queue so we can try again later
+                        
+                        # Sleep to avoid rate limits
+                        time.sleep(2)
+                except Exception as e:
+                    logger.error(f"Error fetching video details for {video_id}: {e}")
 
     async def run(self):
         """Run the bot instance."""
         logger.info("Starting YouTube Summary Bot...")
         
         while True:
-            await self.check_new_videos()
-            await asyncio.sleep(3600)  # Sleep for 1 hour
+            try:
+                # Update the queue of new videos
+                await self.check_and_add_new_videos()
+                await asyncio.sleep(1800)  # Check for new videos every 30 minutes
+                
+                # Process any pending videos
+                await self.process_pending_videos()
+                await asyncio.sleep(1800)  # Process queue every 30 minutes
+            except Exception as e:
+                logger.error(f"Error in main loop: {e}")
+                await asyncio.sleep(60)  # Wait a minute before retrying if there's an error
 
 async def main():
     """Main function to run the bot."""
