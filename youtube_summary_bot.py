@@ -46,12 +46,6 @@ class YouTubeSummaryBot:
         
         # Load channel mappings
         self.channel_mappings = self.load_channel_mappings()
-        
-        # Initialize processed videos tracking for each channel
-        self.processed_videos = {}
-        for mapping in self.channel_mappings:
-            youtube_channel_id = mapping['youtube_channel_id']
-            self.processed_videos[youtube_channel_id] = self.load_processed_videos(youtube_channel_id)
 
     def load_channel_mappings(self) -> List[Dict]:
         """Load channel mappings from JSON file."""
@@ -66,27 +60,13 @@ class YouTubeSummaryBot:
             logger.error("Invalid JSON format in channel_mappings.json")
             return []
 
-    def load_processed_videos(self, youtube_channel_id: str) -> set:
-        """Load processed videos from JSON file for a specific channel."""
-        filename = os.path.join(DATA_DIR, f'processed_videos_{youtube_channel_id}.json')
+    def save_channel_mappings(self):
+        """Save channel mappings to JSON file."""
         try:
-            with open(filename, 'r') as f:
-                data = json.load(f)
-                return set(data.get('processed_videos', []))
-        except FileNotFoundError:
-            return set()
-        except json.JSONDecodeError:
-            logger.error(f"Error reading {filename}, starting with empty set")
-            return set()
-
-    def save_processed_videos(self, youtube_channel_id: str):
-        """Save processed videos to JSON file for a specific channel."""
-        filename = os.path.join(DATA_DIR, f'processed_videos_{youtube_channel_id}.json')
-        try:
-            with open(filename, 'w') as f:
-                json.dump({'processed_videos': list(self.processed_videos[youtube_channel_id])}, f)
+            with open(os.path.join(DATA_DIR, 'channel_mappings.json'), 'w') as f:
+                json.dump({'channel_mappings': self.channel_mappings}, f, indent=2)
         except Exception as e:
-            logger.error(f"Error saving processed videos for channel {youtube_channel_id}: {e}")
+            logger.error(f"Error saving channel mappings: {e}")
 
     def get_channel_uploads(self, youtube_channel_id: str) -> List[Dict]:
         """Fetch recent uploads from a YouTube channel."""
@@ -159,8 +139,8 @@ class YouTubeSummaryBot:
     @backoff.on_exception(
         backoff.expo,
         (Exception),
-        max_tries=5,  # Increased from 3 to 5
-        max_time=120  # Increased from 60 to 120 seconds
+        max_tries=5,
+        max_time=120
     )
     async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str, telegram_channel_id: str) -> None:
         """Send summary to Telegram channel with retry logic."""
@@ -304,18 +284,26 @@ class YouTubeSummaryBot:
                 video_id = video['snippet']['resourceId']['videoId']
                 
                 # Skip if already processed
-                if video_id in self.processed_videos[youtube_channel_id]:
+                if video_id in mapping['processed_videos']:
+                    continue
+                    
+                # Skip if already in unprocessed queue
+                if video_id in mapping['unprocessed_videos']:
                     continue
                     
                 # Skip if it's a Short
                 if self.is_short(video_id):
                     logger.info(f"Skipping Short: {video['snippet']['title']}")
                     # Mark as processed to avoid checking it again
-                    self.processed_videos[youtube_channel_id].add(video_id)
-                    self.save_processed_videos(youtube_channel_id)
+                    mapping['processed_videos'].append(video_id)
+                    self.save_channel_mappings()
                     continue
                     
                 logger.info(f"Processing new video: {video['snippet']['title']}")
+                
+                # Add to unprocessed queue first
+                mapping['unprocessed_videos'].append(video_id)
+                self.save_channel_mappings()
                 
                 # Get transcript and generate summary
                 transcript = self.get_video_transcript(video_id)
@@ -348,12 +336,13 @@ class YouTubeSummaryBot:
                             telegram_channel_id
                         )
                         
-                        # Mark as processed and save
-                        self.processed_videos[youtube_channel_id].add(video_id)
-                        self.save_processed_videos(youtube_channel_id)
+                        # Move from unprocessed to processed
+                        mapping['unprocessed_videos'].remove(video_id)
+                        mapping['processed_videos'].append(video_id)
+                        self.save_channel_mappings()
                     except Exception as e:
                         logger.error(f"Failed to process video {video_id}: {e}")
-                        # Don't mark as processed so we can try again later
+                        # Leave in unprocessed queue so we can try again later
                     
                     # Sleep to avoid rate limits
                     time.sleep(2)
