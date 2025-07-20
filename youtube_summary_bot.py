@@ -79,7 +79,7 @@ class YouTubeSummaryBot:
             
             # Check if the response contains items
             if 'items' not in channel_response or not channel_response['items']:
-                logger.error(f"No channel found for ID: {youtube_channel_id}")
+                logger.error(f"❌ No channel: {youtube_channel_id}")
                 return []
                 
             uploads_playlist_id = channel_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
@@ -93,12 +93,12 @@ class YouTubeSummaryBot:
             
             # Check if the response contains items
             if 'items' not in playlist_response:
-                logger.error(f"No videos found in playlist: {uploads_playlist_id}")
+                logger.error(f"❌ No videos in playlist: {uploads_playlist_id}")
                 return []
                 
             return playlist_response['items']
         except Exception as e:
-            logger.error(f"Error fetching channel uploads for {youtube_channel_id}: {e}")
+            logger.error(f"❌ Channel fetch failed {youtube_channel_id}: {str(e)}")
             return []
 
     def is_short(self, video_id: str) -> bool:
@@ -116,14 +116,18 @@ class YouTubeSummaryBot:
         """Fetch transcript for a YouTube video using proxy."""
         try:
             transcript_list = self.ytt_api.get_transcript(video_id)
-            return ' '.join([entry['text'] for entry in transcript_list])
+            transcript = ' '.join([entry['text'] for entry in transcript_list])
+            if transcript:
+                logger.info(f"📝 Got transcript: {video_id}")
+            return transcript
         except Exception as e:
-            logger.error(f"Error fetching transcript: {e}")
+            logger.error(f"❌ Transcript fetch failed: {str(e)}")
             return ""
 
     def generate_summary(self, transcript: str, prompt: Dict) -> str:
         """Generate a summary using OpenAI's API."""
         try:
+            logger.info("🤖 Generating GPT summary...")
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -131,9 +135,10 @@ class YouTubeSummaryBot:
                     {"role": "user", "content": prompt["user"].format(transcript=transcript)}
                 ]
             )
+            logger.info("✨ Summary generated")
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"Error generating summary: {e}")
+            logger.error(f"❌ Summary generation failed: {str(e)}")
             raise
 
     @backoff.on_exception(
@@ -145,6 +150,7 @@ class YouTubeSummaryBot:
     async def send_telegram_message(self, video_title: str, summary: str, video_url: str, thumbnail_url: str, telegram_channel_id: str) -> None:
         """Send summary to Telegram channel with retry logic."""
         try:
+            logger.info("📤 Preparing Telegram message...")
             # Telegram caption limit is 1024 characters
             # Reserve space for formatting
             caption_limit = 900  # 1024 - ~124 (for formatting)
@@ -264,9 +270,9 @@ class YouTubeSummaryBot:
                         timeout=30  # 30 second timeout
                     )
             
-            logger.info(f"Successfully sent message for video: {video_title}")
+            logger.info(f"✅ Sent: {video_title[:50]}...")
         except Exception as e:
-            logger.error(f"Error sending Telegram message for video {video_title}: {str(e)}")
+            logger.error(f"❌ Telegram send failed: {str(e)}")
             raise
 
     async def check_and_add_new_videos(self):
@@ -274,30 +280,25 @@ class YouTubeSummaryBot:
         for mapping in self.channel_mappings:
             youtube_channel_id = mapping['youtube_channel_id']
             
-            logger.info(f"Checking for new videos for channel {youtube_channel_id}...")
+            logger.info(f"🔍 Checking: {youtube_channel_id}")
             
             videos = self.get_channel_uploads(youtube_channel_id)
             
             for video in videos:
                 video_id = video['snippet']['resourceId']['videoId']
                 
-                # Skip if already processed
-                if video_id in mapping['processed_videos']:
-                    continue
-                    
-                # Skip if already in unprocessed queue
-                if video_id in mapping['unprocessed_videos']:
+                # Skip if already processed or in queue
+                if video_id in mapping['processed_videos'] or video_id in mapping['unprocessed_videos']:
                     continue
                     
                 # Skip if it's a Short
                 if self.is_short(video_id):
-                    logger.info(f"Skipping Short: {video['snippet']['title']}")
-                    # Mark as processed to avoid checking it again
+                    logger.info(f"⏭️ Skip Short: {video['snippet']['title'][:50]}...")
                     mapping['processed_videos'].append(video_id)
                     self.save_channel_mappings()
                     continue
                     
-                logger.info(f"Adding new video to queue: {video['snippet']['title']}")
+                logger.info(f"➕ Queue: {video['snippet']['title'][:50]}...")
                 
                 # Add to unprocessed queue
                 mapping['unprocessed_videos'].append(video_id)
@@ -312,11 +313,9 @@ class YouTubeSummaryBot:
         # Find the earliest unprocessed video across all channels
         for mapping in self.channel_mappings:
             if mapping['unprocessed_videos']:
-                # Get the first video in the unprocessed queue
                 video_id = mapping['unprocessed_videos'][0]
                 
                 try:
-                    # Get video details to check its publish time
                     video_response = self.youtube.videos().list(
                         part='snippet',
                         id=video_id
@@ -327,34 +326,28 @@ class YouTubeSummaryBot:
                         publish_time = video['snippet']['publishedAt']
                         publish_datetime = datetime.strptime(publish_time, '%Y-%m-%dT%H:%M:%SZ')
                         
-                        # Update earliest video if this one is older or if we haven't found one yet
                         if earliest_add_time is None or publish_datetime < earliest_add_time:
                             earliest_video = video
                             earliest_mapping = mapping
                             earliest_add_time = publish_datetime
                 except Exception as e:
-                    logger.error(f"Error fetching video details for {video_id}: {e}")
+                    logger.error(f"❌ Video fetch failed {video_id}: {str(e)}")
                     continue
 
-        # If we found a video to process
         if earliest_video and earliest_mapping:
             video_id = earliest_video['id']
             telegram_channel_id = earliest_mapping['telegram_channel_id']
             prompt = earliest_mapping['prompt']
             
-            logger.info(f"Processing earliest video from queue: {earliest_video['snippet']['title']}")
+            logger.info(f"🎬 Processing: {earliest_video['snippet']['title'][:50]}...")
             
-            # Get transcript and generate summary
             transcript = self.get_video_transcript(video_id)
             if transcript:
                 try:
                     summary = self.generate_summary(transcript, prompt)
                     video_url = f"https://www.youtube.com/watch?v={video_id}"
                     
-                    # Get the highest quality thumbnail available
                     thumbnails = earliest_video['snippet']['thumbnails']
-                    # YouTube provides different sizes: default, medium, high, standard, maxres
-                    # Try to get the highest quality available
                     if 'maxres' in thumbnails:
                         thumbnail_url = thumbnails['maxres']['url']
                     elif 'standard' in thumbnails:
@@ -366,7 +359,6 @@ class YouTubeSummaryBot:
                     else:
                         thumbnail_url = thumbnails['default']['url']
                     
-                    # Send to Telegram
                     await self.send_telegram_message(
                         earliest_video['snippet']['title'], 
                         summary, 
@@ -375,13 +367,11 @@ class YouTubeSummaryBot:
                         telegram_channel_id
                     )
                     
-                    # Move from unprocessed to processed
                     earliest_mapping['unprocessed_videos'].remove(video_id)
                     earliest_mapping['processed_videos'].append(video_id)
                     self.save_channel_mappings()
                 except Exception as e:
-                    logger.error(f"Failed to process video {video_id}: {e}")
-                    # Leave in unprocessed queue so we can try again later
+                    logger.error(f"❌ Processing failed {video_id}: {str(e)}")
 
     async def run_check_new_videos(self):
         """Run the check for new videos loop."""
@@ -389,7 +379,7 @@ class YouTubeSummaryBot:
             try:
                 await self.check_and_add_new_videos()
             except Exception as e:
-                logger.error(f"Error checking for new videos: {e}")
+                logger.error(f"❌ Check loop failed: {str(e)}")
             await asyncio.sleep(1800)  # Run every 30 minutes
 
     async def run_process_videos(self):
@@ -398,23 +388,20 @@ class YouTubeSummaryBot:
             try:
                 await self.process_pending_videos()
             except Exception as e:
-                logger.error(f"Error processing videos: {e}")
+                logger.error(f"❌ Process loop failed: {str(e)}")
             await asyncio.sleep(300)  # Run every 5 minutes
 
     async def run(self):
         """Run the bot instance."""
-        logger.info("Starting YouTube Summary Bot...")
+        logger.info("🚀 Starting YouTube Summary Bot...")
         
-        # Create tasks for both operations
         check_task = asyncio.create_task(self.run_check_new_videos())
         process_task = asyncio.create_task(self.run_process_videos())
         
         try:
-            # Run both tasks concurrently
             await asyncio.gather(check_task, process_task)
         except Exception as e:
-            logger.error(f"Critical error in main loop: {e}")
-            # Cancel tasks if there's a critical error
+            logger.error(f"❌ Critical error: {str(e)}")
             check_task.cancel()
             process_task.cancel()
             raise
